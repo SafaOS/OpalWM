@@ -15,11 +15,13 @@ struct RootContainer {
 
 impl RootContainer {
     const CORNER_RADIUS: u32 = 8;
-    const BORDER_COLOR: Pixel = Pixel::from_rgba(0xFD, 0xB0, 0xC0, 0xFF);
-    const BG_COLOR: Pixel = Pixel::from_rgba(0, 0, 0, 0x80);
-    const TITLE_HEIGHT: u32 = 20;
+    const BORDER_COLOR: Pixel = Pixel::from_rgb(0xFD, 0xB0, 0xC0);
+    const BG_COLOR: Pixel = Pixel::from_rgb_with_alpha(0, 0, 0, 0x80);
+    const TITLE_HEIGHT: u32 = Self::DEFAULT_FONT_SIZE + 10;
+    const DEFAULT_FONT_SIZE: u32 = 16;
+    const DEFAULT_FONT_DATA: &[u8] = include_bytes!("../../assets/DejaVuSansMono.ttf");
 
-    pub fn new(width: u32, height: u32) -> Self {
+    pub fn new(width: u32, height: u32, title: &str) -> Self {
         let real_width = width + Self::CORNER_RADIUS;
         let real_height = height + Self::TITLE_HEIGHT;
         let window_x = Self::CORNER_RADIUS / 2;
@@ -46,6 +48,18 @@ impl RootContainer {
             },
         );
 
+        let font = ab_glyph::FontRef::try_from_slice(Self::DEFAULT_FONT_DATA)
+            .expect("Failed to parse font file");
+
+        win.draw_text(
+            window_x,
+            1,
+            title,
+            &font,
+            Self::DEFAULT_FONT_SIZE as f32,
+            Pixel::from_hex_rgb(0xFFFFFF),
+        );
+
         win.redraw(0, 0, real_width, real_height);
         Self {
             root: win,
@@ -61,9 +75,9 @@ pub struct Gem {
 }
 
 impl Gem {
-    pub fn init(width: u32, height: u32) -> Self {
+    pub fn init(width: u32, height: u32, title: &str) -> Self {
         libopal::init();
-        let root_container = RootContainer::new(width, height);
+        let root_container = RootContainer::new(width, height, title);
         Self {
             root: root_container,
         }

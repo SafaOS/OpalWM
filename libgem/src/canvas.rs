@@ -1,3 +1,4 @@
+use ab_glyph::{Font, PxScale, ScaleFont};
 pub use libopal::window::Pixel;
 use libopal::window::Window;
 
@@ -6,6 +7,51 @@ pub trait DrawingCanvas {
 
     fn width(&self) -> u32;
     fn height(&self) -> u32;
+
+    fn draw_text(
+        &mut self,
+        x: u32,
+        y: u32,
+        text: &str,
+        font: &ab_glyph::FontRef,
+        font_size: f32,
+        color: Pixel,
+    ) {
+        let height = font_size;
+
+        let scale = PxScale {
+            x: height,
+            y: height,
+        };
+        let px_height = height.ceil() as u32;
+        let font = font.into_scaled(scale);
+
+        let mut font_x = 0.0;
+        for c in text.chars() {
+            let glyph = font.glyph_id(c).with_scale_and_position(
+                font_size,
+                ab_glyph::point(font_x, (y + px_height) as f32),
+            );
+
+            let advance = font.h_advance(glyph.id);
+            if let Some(char) = font.outline_glyph(glyph) {
+                let bounds = char.px_bounds();
+
+                char.draw(|g_x, g_y, c| {
+                    let bound_x = bounds.min.x + g_x as f32;
+                    let bound_y = bounds.min.y + g_y as f32;
+                    let x = x + bound_x as u32;
+                    let y = y + bound_y as u32;
+
+                    let alpha = (c * 255f32) as u8;
+                    let pixel = color.with_alpha(alpha);
+
+                    self.draw_pixel(x, y, pixel);
+                });
+            }
+            font_x += advance;
+        }
+    }
 
     #[inline]
     fn draw_rect_points(&mut self, x1: u32, y1: u32, x2: u32, y2: u32, pixel: Pixel) {
@@ -205,6 +251,7 @@ impl DrawingCanvas for Window {
     #[inline]
     fn draw_pixel(&mut self, x: u32, y: u32, pixel: Pixel) {
         let index = (y * self.width() + x) as usize;
-        self.pixels_mut()[index] = pixel;
+        let bottom = &mut self.pixels_mut()[index];
+        *bottom = pixel.blend(bottom);
     }
 }
