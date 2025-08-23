@@ -110,7 +110,9 @@ impl Window {
 
         let id = window.window_id();
         let mut window = Self::new_inner(id, window.shm_key(), width, height);
-        window.pixels_mut().fill(Pixel::from_rgba(0, 0, 0, 0x0));
+        window
+            .pixels_mut()
+            .fill(Pixel::from_rgb_with_alpha(0, 0, 0, 0x0));
 
         let results = send_request(RequestKind::DamageWindow(DamageWindow::new(
             id, 0, 0, width, height,

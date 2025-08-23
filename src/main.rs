@@ -31,11 +31,17 @@ fn main() {
     {
         let mut w = WINDOWS.lock().expect("failed to get lock on windows");
         w.add_window(
-            Window::new_filled_with(213, 442, 200, 200, Pixel::from_rgba(0, 0xFF, 0, 0xFF)),
+            Window::new_filled_with(213, 442, 200, 200, Pixel::from_rgb(0, 0xFF, 0)),
             WindowKind::Normal,
         );
         w.add_window(
-            Window::new_filled_with(270, 400, 200, 200, Pixel::from_rgba(0xFF, 0, 0, 0xFF / 2)),
+            Window::new_filled_with(
+                270,
+                400,
+                200,
+                200,
+                Pixel::from_rgb_with_alpha(0xFF, 0, 0, 0xFF / 2),
+            ),
             WindowKind::Normal,
         );
     }

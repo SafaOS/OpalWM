@@ -55,7 +55,7 @@ fn handle_connect(connection: UnixSockConnection) {
                         pos_y,
                         width,
                         height,
-                        Pixel::from_rgba(0, 0, 0, 0xFF),
+                        Pixel::from_rgb(0, 0, 0),
                     )
                     .with_com_pipe(pipe.clone());
 

@@ -124,7 +124,7 @@ impl Window {
         fill_pixels: impl ExactSizeIterator + Iterator<Item = Pixel>,
     ) -> Window {
         let (mut pixels, shm_ri, mmap_ri, shm_key) =
-            Self::allocate_pixel_buffer(width, height, Pixel::from_hex(0));
+            Self::allocate_pixel_buffer(width, height, Pixel::from_hex_argb(0));
         let pixels_mut = unsafe { pixels.as_mut() };
 
         assert_eq!(

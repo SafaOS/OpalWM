@@ -250,7 +250,7 @@ impl<'a> Iterator for BMPPixels<'a> {
         let alpha =
             (pixel_as_u32 & bitmasks.alpha_channel) >> bitmasks.alpha_channel.trailing_zeros();
 
-        Some(Pixel::from_rgba(
+        Some(Pixel::from_rgb_with_alpha(
             red as u8,
             green as u8,
             blue as u8,

@@ -1,3 +1,4 @@
+pub use opal_abi::fb::Pixel;
 use std::sync::{LazyLock, Mutex, MutexGuard};
 
 use safa_api::syscalls::types::Ri;
@@ -5,64 +6,10 @@ use std::fs::OpenOptions;
 use std::os::safaos::AsRawResource;
 use std::os::safaos::IoUtils;
 use std::usize;
-use zerocopy_derive::FromBytes;
-use zerocopy_derive::Immutable;
-use zerocopy_derive::IntoBytes;
 
 use safa_api::abi::mem::MemMapFlags;
 
 use crate::dlog;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, IntoBytes, FromBytes, Immutable)]
-/// Represents a single pixel
-#[repr(C)]
-pub struct Pixel {
-    blue: u8,
-    green: u8,
-    red: u8,
-    alpha: u8,
-}
-
-impl Pixel {
-    /// Construct a Pixel from an RGBA Color
-    pub const fn from_rgba(r: u8, g: u8, b: u8, alpha: u8) -> Self {
-        Self {
-            blue: b,
-            green: g,
-            red: r,
-            alpha,
-        }
-    }
-    /// Construct a Pixel from a hex RGB Color
-    pub const fn from_hex(rgb: u32) -> Self {
-        unsafe { core::mem::transmute(rgb) }
-    }
-
-    /// Alpha blends a pixel with another
-    pub const fn blend(&self, other: &Self) -> Self {
-        let src_red = self.red as u16;
-        let target_red = other.red as u16;
-
-        let src_green = self.green as u16;
-        let target_green = other.green as u16;
-
-        let src_blue = self.blue as u16;
-        let target_blue = other.blue as u16;
-
-        let alpha = self.alpha as u16;
-
-        let red = (src_red * alpha + (target_red * (255 - alpha))) / 255;
-        let green = (src_green * alpha + (target_green * (255 - alpha))) / 255;
-        let blue = (src_blue * alpha + (target_blue * (255 - alpha))) / 255;
-
-        Pixel {
-            red: red as u8,
-            green: green as u8,
-            blue: blue as u8,
-            alpha: self.alpha,
-        }
-    }
-}
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
@@ -284,7 +231,7 @@ pub fn framebuffer() -> MutexGuard<'static, Framebuffer> {
         .expect("Failed to acquire lock on framebuffer")
 }
 
-pub const BG_PIXEL: Pixel = Pixel::from_hex(0x282828);
+pub const BG_PIXEL: Pixel = Pixel::from_hex_rgb(0x282828);
 
 /// Clears the screen
 pub fn clear() {
