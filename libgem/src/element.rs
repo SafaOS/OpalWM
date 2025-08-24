@@ -162,7 +162,6 @@ impl<RootCanvas: DrawingCanvas> Element<RootCanvas> for Button {
 
     fn handle_event(&mut self, event: libopal::Event, ele_x: u32, ele_y: u32) {
         let last_mouse_hovering = self.mouse_hovering;
-        self.mouse_hovering = false;
 
         let (mouse_x, mouse_y, is_held) = match event {
             libopal::Event::MouseChange(change_event) => (
@@ -181,20 +180,19 @@ impl<RootCanvas: DrawingCanvas> Element<RootCanvas> for Button {
             && let Some(mouse_y) = mouse_y
         {
             let is_inside = is_inside_rect(mouse_x, mouse_y, ele_x, ele_y, self.width, self.height);
-            if is_inside {
-                // FIXME: perhaps only detect on button release, but the WM currently cannot send release events for some odd reason
-                if is_held {
-                    if let Some(f) = self.on_click {
-                        f(self);
-                    }
+            self.mouse_hovering = is_inside;
+        }
+
+        if is_held && self.mouse_hovering {
+            // FIXME: perhaps only detect on button release, but the WM currently cannot send release events for some odd reason
+            if is_held {
+                if let Some(f) = self.on_click {
+                    f(self);
                 }
-                self.mouse_hovering = true;
             }
         }
 
-        if last_mouse_hovering != self.mouse_hovering {
-            self.need_redraw = true;
-        }
+        self.need_redraw = self.need_redraw || (self.mouse_hovering != last_mouse_hovering);
     }
 }
 
