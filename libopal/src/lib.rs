@@ -6,12 +6,14 @@ use std::{
 use opal_abi::com::{
     packet::MAX_PACKET_SIZE,
     request::{Request, RequestKind},
-    response::{OkResponse, Response, event::Event},
+    response::{OkResponse, Response},
 };
 use safa_api::sockets::UnixSockConnection;
 
 pub mod window;
 
+pub use opal_abi::com::response::event;
+pub use opal_abi::com::response::event::Event;
 static EVENTS_QUEUE: Mutex<Vec<Event>> = Mutex::new(Vec::new());
 
 static WM_CONNECTION: LazyLock<Mutex<UnixSockConnection>> = LazyLock::new(|| {

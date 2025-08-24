@@ -1,6 +1,7 @@
-use ab_glyph::{Font, PxScale, ScaleFont};
 pub use libopal::window::Pixel;
 use libopal::window::Window;
+
+use crate::text::Text;
 
 pub trait DrawingCanvas {
     fn draw_pixel(&mut self, x: u32, y: u32, pixel: Pixel);
@@ -8,49 +9,17 @@ pub trait DrawingCanvas {
     fn width(&self) -> u32;
     fn height(&self) -> u32;
 
-    fn draw_text(
-        &mut self,
-        x: u32,
-        y: u32,
-        text: &str,
-        font: &ab_glyph::FontRef,
-        font_size: f32,
-        color: Pixel,
-    ) {
-        let height = font_size;
+    fn draw_text(&mut self, start_x: u32, start_y: u32, max_x: u32, max_y: u32, text: &mut Text) {
+        text.draw(|x, y, _, _, color| {
+            let x = x as u32 + start_x;
+            let y = y as u32 + start_y;
 
-        let scale = PxScale {
-            x: height,
-            y: height,
-        };
-        let px_height = height.ceil() as u32;
-        let font = font.into_scaled(scale);
-
-        let mut font_x = 0.0;
-        for c in text.chars() {
-            let glyph = font.glyph_id(c).with_scale_and_position(
-                font_size,
-                ab_glyph::point(font_x, (y + px_height) as f32),
-            );
-
-            let advance = font.h_advance(glyph.id);
-            if let Some(char) = font.outline_glyph(glyph) {
-                let bounds = char.px_bounds();
-
-                char.draw(|g_x, g_y, c| {
-                    let bound_x = bounds.min.x + g_x as f32;
-                    let bound_y = bounds.min.y + g_y as f32;
-                    let x = x + bound_x as u32;
-                    let y = y + bound_y as u32;
-
-                    let alpha = (c * 255f32) as u8;
-                    let pixel = color.with_alpha(alpha);
-
-                    self.draw_pixel(x, y, pixel);
-                });
+            if x >= max_x || y >= max_y {
+                return;
             }
-            font_x += advance;
-        }
+
+            self.draw_pixel(x, y, color);
+        });
     }
 
     #[inline]
