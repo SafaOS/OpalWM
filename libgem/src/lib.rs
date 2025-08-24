@@ -4,7 +4,7 @@ mod text;
 
 pub use libopal;
 use libopal::{
-    Event,
+    DequeuedEvents,
     window::{Pixel, Window},
 };
 
@@ -59,20 +59,20 @@ impl RootContainer {
         );
         win.redraw(0, 0, real_width, real_height);
 
-        let x_button_width = Self::DEFAULT_FONT_SIZE;
+        let x_button_width = Self::DEFAULT_FONT_SIZE + 10;
 
         let mut title_bar = Container::new(element::ContainerKind::Horizontal);
         let title_bar_y = (Self::TITLE_HEIGHT - Self::DEFAULT_FONT_SIZE) / 2;
         let label = Label::new(
             title,
             Self::DEFAULT_FONT_SIZE as f32,
-            (width - x_button_width) as f32,
+            (width - (x_button_width)) as f32,
             Self::TITLE_HEIGHT as f32,
         );
 
         let mut x_button = Button::new(
             x_button_width,
-            x_button_width,
+            Self::DEFAULT_FONT_SIZE + 1,
             Self::DEFAULT_FONT_SIZE as f32,
         );
 
@@ -152,17 +152,18 @@ impl Gem {
         }
     }
 
-    pub fn handle_event_blocking(&mut self) -> Event {
-        let event = libopal::wait_for_event_blocking().expect("Failed to wait for an event");
+    pub fn handle_events_blocking(&mut self) -> DequeuedEvents {
+        let events = libopal::dequeue_events_blocking().expect("Failed to wait for an event");
 
-        self.root
-            .title_bar
-            .handle_event(event, self.root.window_x, self.root.title_bar_y);
+        for event in &*events {
+            self.root
+                .title_bar
+                .handle_event(*event, self.root.window_x, self.root.title_bar_y);
 
-        dbg!(&event);
-        self.root
-            .body
-            .handle_event(event, self.root.window_x, self.root.window_y);
-        event
+            self.root
+                .body
+                .handle_event(*event, self.root.window_x, self.root.window_y);
+        }
+        events
     }
 }
