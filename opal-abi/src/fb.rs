@@ -80,6 +80,14 @@ impl Pixel {
 
     /// Alpha blends a pixel with another
     pub const fn blend(&self, bottom: &Self) -> Self {
+        if self.alpha == 0 {
+            return *bottom;
+        }
+
+        if bottom.alpha == 0 || self.alpha == 0xFF {
+            return *self;
+        }
+
         let top_red = self.red as u16;
         let bottom_red = bottom.red as u16;
 
