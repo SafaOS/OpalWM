@@ -1,4 +1,5 @@
 use std::{
+    collections::VecDeque,
     io::{self, Read, Write},
     sync::{LazyLock, Mutex},
 };
@@ -14,7 +15,7 @@ pub mod window;
 
 pub use opal_abi::com::response::event;
 pub use opal_abi::com::response::event::Event;
-static EVENTS_QUEUE: Mutex<Vec<Event>> = Mutex::new(Vec::new());
+static EVENTS_QUEUE: Mutex<VecDeque<Event>> = Mutex::new(VecDeque::new());
 
 static WM_CONNECTION: LazyLock<Mutex<UnixSockConnection>> = LazyLock::new(|| {
     use safa_api::sockets::{SockKind, UnixSockConnectionBuilder};
@@ -48,7 +49,7 @@ pub(crate) fn send_request(req: RequestKind) -> io::Result<Response> {
         let response = Response::decode(msg).expect("Couldn't Parse WM's response");
         match response {
             Response::Event(event) => {
-                events.push(event);
+                events.push_back(event);
             }
             other => break other,
         }
@@ -63,7 +64,7 @@ pub fn wait_for_event_blocking() -> io::Result<Event> {
             .lock()
             .expect("Failed to acquire lock on events queue");
 
-        if let Some(event) = events.pop() {
+        if let Some(event) = events.pop_front() {
             return Ok(event);
         }
     }

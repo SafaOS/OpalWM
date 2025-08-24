@@ -11,7 +11,6 @@ use libopal::{
 use crate::{
     canvas::DrawingCanvas,
     element::{Button, Container, Element, Label},
-    text::Text,
 };
 
 struct RootContainer {
