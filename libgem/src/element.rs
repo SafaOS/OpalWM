@@ -25,7 +25,11 @@ pub trait Element<RootCanvas: DrawingCanvas> {
     /// Returns true if the element needs to be redrawn.
     fn needs_redraw(&self) -> bool;
     /// Handles an event for the element, given a relative position of the element from the canvas.
-    fn handle_event(&mut self, event: libopal::Event, ele_x: u32, ele_y: u32);
+    fn handle_event(&mut self, event: libopal::Event, ele_x: u32, ele_y: u32) {
+        _ = event;
+        _ = ele_x;
+        _ = ele_y;
+    }
 }
 
 /// A button element that can be clicked.
@@ -66,7 +70,7 @@ impl Button {
             height,
             was_pressed: false,
             mouse_hovering: false,
-            need_redraw: false,
+            need_redraw: true,
             hover_color: Self::DEFAULT_HOVER_COLOR,
             normal_color: Self::DEFAULT_NORMAL_COLOR,
             border_color: Self::DEFAULT_BORDER_COLOR,
@@ -92,7 +96,7 @@ impl Button {
     }
 
     pub fn set_hover_text_color(&mut self, color: Pixel) {
-        self.hover_color = color;
+        self.hover_text_color = color;
     }
 
     pub fn on_click(&mut self, on_click: fn(&mut Self)) {
@@ -110,7 +114,9 @@ impl<RootCanvas: DrawingCanvas> Element<RootCanvas> for Button {
         let width = self.width;
         let height = self.height;
 
-        canvas.draw_round_rect(x, y, width, height, 0x0, |_, _| Pixel::from_rgb(0, 0, 0));
+        canvas.draw_round_rect(x, y, width, height, 6, |_, _| {
+            Pixel::from_rgb(0, 0, 0).with_alpha(0)
+        });
         canvas.draw_round_rect(x, y, width, height, 6, |is_border, _| {
             if is_border {
                 self.border_color
@@ -192,19 +198,89 @@ impl<RootCanvas: DrawingCanvas> Element<RootCanvas> for Button {
     }
 }
 
+/// A label element that displays text.
+pub struct Label {
+    text: Text,
+    width: u32,
+    height: u32,
+    needs_redraw: bool,
+}
+
+impl Label {
+    pub fn new(content: &str, font_size: f32, max_width: f32, max_height: f32) -> Self {
+        let mut text = Text::new(font_size, font_size, Some(max_height), Some(max_width));
+        text.set_text(content);
+
+        Label {
+            width: max_width as u32,
+            height: max_height as u32,
+            text,
+            needs_redraw: false,
+        }
+    }
+
+    /// Sets the color of the label.
+    pub fn set_color(&mut self, color: Pixel) {
+        self.text.set_color(color);
+        self.needs_redraw = true;
+    }
+
+    /// Sets the text of the label.
+    pub fn set_text(&mut self, text: &str) {
+        self.text.set_text(text);
+        self.needs_redraw = true;
+    }
+}
+
+impl<Canvas: DrawingCanvas> Element<Canvas> for Label {
+    fn draw_width(&self) -> u32 {
+        self.width
+    }
+
+    fn draw_height(&self) -> u32 {
+        self.height
+    }
+
+    fn draw(&mut self, canvas: &mut Canvas, x: u32, y: u32) -> Option<(u32, u32)> {
+        let max_x = x + self.width;
+        let max_y = y + self.height;
+
+        canvas.draw_text(x, y, max_x, max_y, &mut self.text);
+        self.needs_redraw = false;
+        Some((max_x, max_y))
+    }
+
+    fn needs_redraw(&self) -> bool {
+        self.needs_redraw
+    }
+}
+
+/// Describes how a container should be laid out.
+pub enum ContainerKind {
+    Horizontal,
+    Vertical,
+}
+
 /// A customizable container of elements, that handles their layout and such.
 pub struct Container<Canvas: DrawingCanvas> {
+    kind: ContainerKind,
     elements: Vec<Box<dyn Element<Canvas>>>,
     /* FIXME: Save element height and width information and set this true if these were changed */
     elements_changed: bool,
 }
 
 impl<Canvas: DrawingCanvas> Container<Canvas> {
-    pub fn new() -> Self {
+    pub const fn new(kind: ContainerKind) -> Self {
         Container {
+            kind,
             elements: Vec::new(),
             elements_changed: false,
         }
+    }
+
+    pub const fn set_layout(&mut self, kind: ContainerKind) {
+        self.kind = kind;
+        self.elements_changed = true;
     }
 
     pub fn add_element(&mut self, element: Box<dyn Element<Canvas>>) {
@@ -214,11 +290,13 @@ impl<Canvas: DrawingCanvas> Container<Canvas> {
 }
 
 impl<Canvas: DrawingCanvas> Element<Canvas> for Container<Canvas> {
-    fn draw(&mut self, canvas: &mut Canvas, x: u32, mut y: u32) -> Option<(u32, u32)> {
+    fn draw(&mut self, canvas: &mut Canvas, mut x: u32, mut y: u32) -> Option<(u32, u32)> {
         let mut draw_ended_at = None;
 
         for element in self.elements.iter_mut() {
             let height = element.draw_height();
+            let width = element.draw_width();
+
             if self.elements_changed || element.needs_redraw() {
                 let results = element.draw(canvas, x, y);
 
@@ -226,7 +304,15 @@ impl<Canvas: DrawingCanvas> Element<Canvas> for Container<Canvas> {
                     draw_ended_at = results;
                 }
             }
-            y += height;
+
+            match self.kind {
+                ContainerKind::Horizontal => {
+                    x += width;
+                }
+                ContainerKind::Vertical => {
+                    y += height;
+                }
+            }
         }
 
         draw_ended_at
@@ -251,12 +337,17 @@ impl<Canvas: DrawingCanvas> Element<Canvas> for Container<Canvas> {
             .unwrap_or(0)
     }
 
-    fn handle_event(&mut self, event: libopal::Event, ele_x: u32, ele_y: u32) {
-        let x = ele_x;
-        let mut y = ele_y;
-        for (_, element) in self.elements.iter_mut().enumerate() {
-            element.handle_event(event, x, y);
-            y += element.draw_height();
+    fn handle_event(&mut self, event: libopal::Event, mut ele_x: u32, mut ele_y: u32) {
+        for element in self.elements.iter_mut() {
+            element.handle_event(event, ele_x, ele_y);
+            match self.kind {
+                ContainerKind::Horizontal => {
+                    ele_x += element.draw_width();
+                }
+                ContainerKind::Vertical => {
+                    ele_y += element.draw_height();
+                }
+            }
         }
     }
 }

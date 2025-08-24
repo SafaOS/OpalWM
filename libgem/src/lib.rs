@@ -3,11 +3,14 @@ pub mod element;
 mod text;
 
 pub use libopal;
-use libopal::window::{Pixel, Window};
+use libopal::{
+    Event,
+    window::{Pixel, Window},
+};
 
 use crate::{
     canvas::DrawingCanvas,
-    element::{Container, Element},
+    element::{Button, Container, Element, Label},
     text::Text,
 };
 
@@ -17,8 +20,9 @@ struct RootContainer {
     height: u32,
     window_x: u32,
     window_y: u32,
-    inner: Container<Window>,
-    title: Text,
+    body: Container<Window>,
+    title_bar: Container<Window>,
+    title_bar_y: u32,
 }
 
 impl RootContainer {
@@ -54,32 +58,44 @@ impl RootContainer {
                 }
             },
         );
-
-        let mut title_text = Text::new(
-            Self::DEFAULT_FONT_SIZE as f32,
-            Self::DEFAULT_FONT_SIZE as f32,
-            Some(Self::TITLE_HEIGHT as f32),
-            Some(width as f32),
-        );
-        title_text.set_text(title);
-
-        win.draw_text(
-            window_x,
-            (Self::TITLE_HEIGHT - Self::DEFAULT_FONT_SIZE) / 2,
-            window_x + width,
-            Self::TITLE_HEIGHT,
-            &mut title_text,
-        );
-
         win.redraw(0, 0, real_width, real_height);
+
+        let x_button_width = Self::DEFAULT_FONT_SIZE;
+
+        let mut title_bar = Container::new(element::ContainerKind::Horizontal);
+        let title_bar_y = (Self::TITLE_HEIGHT - Self::DEFAULT_FONT_SIZE) / 2;
+        let label = Label::new(
+            title,
+            Self::DEFAULT_FONT_SIZE as f32,
+            (width - x_button_width) as f32,
+            Self::TITLE_HEIGHT as f32,
+        );
+
+        let mut x_button = Button::new(
+            x_button_width,
+            x_button_width,
+            Self::DEFAULT_FONT_SIZE as f32,
+        );
+
+        x_button.set_label("X");
+        x_button.set_background_color(Pixel::from_hex_argb(0));
+        x_button.set_border_color(Pixel::from_hex_argb(0));
+        x_button.set_hover_color(Pixel::from_hex_argb(0));
+        x_button.set_hover_text_color(Pixel::from_rgb(0xFF, 0, 0));
+        x_button.on_click(|_| std::process::exit(0));
+
+        title_bar.add_element(Box::new(label));
+        title_bar.add_element(Box::new(x_button));
+
         Self {
             root: win,
             width,
             height,
             window_x,
             window_y,
-            inner: Container::new(),
-            title: title_text,
+            body: Container::new(element::ContainerKind::Vertical),
+            title_bar,
+            title_bar_y,
         }
     }
 }
@@ -97,26 +113,57 @@ impl Gem {
     }
 
     pub fn add_element(&mut self, element: Box<dyn Element<Window>>) {
-        self.root.inner.add_element(element);
+        self.root.body.add_element(element);
     }
 
     pub fn redraw(&mut self) {
-        if self.root.inner.needs_redraw() {
-            self.root
-                .inner
-                .draw(&mut self.root.root, self.root.window_x, self.root.window_y);
+        if self.root.title_bar.needs_redraw() {
+            let (start_x, start_y) = (self.root.window_x, self.root.title_bar_y);
 
-            self.root
+            let end = self
                 .root
-                .redraw(0, 0, self.root.root.width(), self.root.root.height());
+                .title_bar
+                .draw(&mut self.root.root, start_x, start_y);
+
+            if let Some((end_x, end_y)) = end {
+                let width = end_x - start_x;
+                let height = end_y - start_y;
+
+                self.root.root.redraw(start_x, start_y, width, height);
+            }
+        }
+
+        if self.root.body.needs_redraw() {
+            let (start_x, start_y) = (self.root.window_x, self.root.window_y);
+
+            let end = self.root.body.draw(&mut self.root.root, start_x, start_y);
+
+            if let Some((end_x, end_y)) = end {
+                let width = end_x - start_x;
+                let height = end_y - start_y;
+
+                // TODO: Only sync changes
+                _ = width;
+                _ = height;
+
+                self.root
+                    .root
+                    .redraw(0, 0, self.root.root.width(), self.root.root.height());
+            }
         }
     }
 
-    pub fn handle_event_blocking(&mut self) {
+    pub fn handle_event_blocking(&mut self) -> Event {
         let event = libopal::wait_for_event_blocking().expect("Failed to wait for an event");
+
+        self.root
+            .title_bar
+            .handle_event(event, self.root.window_x, self.root.title_bar_y);
+
         dbg!(&event);
         self.root
-            .inner
+            .body
             .handle_event(event, self.root.window_x, self.root.window_y);
+        event
     }
 }
