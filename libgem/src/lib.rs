@@ -3,6 +3,8 @@ pub mod element;
 mod text;
 
 pub use libopal;
+pub use opal_img as image;
+
 use libopal::{
     DequeuedEvents,
     window::{Pixel, Window},
@@ -10,13 +12,11 @@ use libopal::{
 
 use crate::{
     canvas::DrawingCanvas,
-    element::{Button, Container, Element, Label},
+    element::{Button, Container, ContainerLayout, Element, Label},
 };
 
 struct RootContainer {
     root: Window,
-    width: u32,
-    height: u32,
     window_x: u32,
     window_y: u32,
     body: Container<Window>,
@@ -33,9 +33,9 @@ impl RootContainer {
 
     fn new(width: u32, height: u32, title: &str) -> Self {
         let real_width = width + Self::CORNER_RADIUS;
-        let real_height = height + Self::TITLE_HEIGHT;
+        let real_height = height + Self::TITLE_HEIGHT + 2;
         let window_x = Self::CORNER_RADIUS / 2;
-        let window_y = Self::TITLE_HEIGHT;
+        let window_y = Self::TITLE_HEIGHT + 2;
 
         let mut win = Window::create(real_width, real_height);
 
@@ -61,7 +61,11 @@ impl RootContainer {
 
         let x_button_width = Self::DEFAULT_FONT_SIZE + 10;
 
-        let mut title_bar = Container::new(element::ContainerKind::Horizontal);
+        let mut title_bar = Container::new(
+            element::ContainerLayout::Horizontal,
+            width,
+            Self::TITLE_HEIGHT,
+        );
         let title_bar_y = (Self::TITLE_HEIGHT - Self::DEFAULT_FONT_SIZE) / 2;
         let label = Label::new(
             title,
@@ -88,11 +92,15 @@ impl RootContainer {
 
         Self {
             root: win,
-            width,
-            height,
             window_x,
             window_y,
-            body: Container::new(element::ContainerKind::Vertical),
+            body: Container::new(
+                element::ContainerLayout::Vertical {
+                    align_center: false,
+                },
+                width,
+                height,
+            ),
             title_bar,
             title_bar_y,
         }
@@ -109,6 +117,10 @@ impl Gem {
         Self {
             root: root_container,
         }
+    }
+
+    pub fn set_layout(&mut self, layout: ContainerLayout) {
+        self.root.body.set_layout(layout);
     }
 
     pub fn add_element(&mut self, element: Box<dyn Element<Window>>) {

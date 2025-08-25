@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 cosmic-text = { version = "0.14.2", default-features = false, features = ["std","swash"] }
 libopal = { path = "../libopal" }
+opal-img = { path = "../opal-img" }

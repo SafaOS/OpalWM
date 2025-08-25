@@ -1,4 +1,5 @@
 use libopal::{event::HeldMouseButtons, window::Pixel};
+use opal_img::display::ARGB;
 
 use crate::{canvas::DrawingCanvas, text::Text};
 
@@ -14,10 +15,14 @@ const fn is_inside_rect(
 }
 
 pub trait Element<RootCanvas: DrawingCanvas> {
-    /// The amount of pixels this element takes up from the x axis.
+    /// The amount of pixels this element takes up from the x axis, not including padding.
     fn draw_width(&self) -> u32;
-    /// The amount of pixels this element takes up from the y axis.
+    /// The amount of pixels this element takes up from the y axis, not including padding.
     fn draw_height(&self) -> u32;
+    /// The amount of pixels this element takes up from the x axis, including padding.
+    fn container_width(&self) -> u32;
+    /// The amount of pixels this element takes up from the y axis, including padding.
+    fn container_height(&self) -> u32;
 
     /// Draws the element onto the canvas, given a relative position of the element from the canvas.
     /// Returns either None or the end position of the element as if it was a rectangle, and that is (x, y) where x is the rightmost x coordinate and y is the lowest y coordinate of the element.
@@ -157,6 +162,14 @@ impl<RootCanvas: DrawingCanvas> Element<RootCanvas> for Button {
         self.width
     }
 
+    fn container_height(&self) -> u32 {
+        self.height
+    }
+
+    fn container_width(&self) -> u32 {
+        self.width
+    }
+
     fn handle_event(&mut self, event: libopal::Event, ele_x: u32, ele_y: u32) {
         let last_mouse_hovering = self.mouse_hovering;
 
@@ -213,7 +226,7 @@ impl Label {
             width: max_width as u32,
             height: max_height as u32,
             text,
-            needs_redraw: false,
+            needs_redraw: true,
         }
     }
 
@@ -231,12 +244,20 @@ impl Label {
 }
 
 impl<Canvas: DrawingCanvas> Element<Canvas> for Label {
-    fn draw_width(&self) -> u32 {
+    fn container_width(&self) -> u32 {
         self.width
     }
 
-    fn draw_height(&self) -> u32 {
+    fn container_height(&self) -> u32 {
         self.height
+    }
+
+    fn draw_height(&self) -> u32 {
+        self.text.height() as u32
+    }
+
+    fn draw_width(&self) -> u32 {
+        self.text.biggest_line_width() as u32
     }
 
     fn draw(&mut self, canvas: &mut Canvas, x: u32, y: u32) -> Option<(u32, u32)> {
@@ -253,31 +274,132 @@ impl<Canvas: DrawingCanvas> Element<Canvas> for Label {
     }
 }
 
+pub enum ImageData<'a> {
+    BMP(opal_img::BMPImage<'a>),
+    PixelImage(opal_img::PixelImage),
+}
+
+impl<'a> ImageData<'a> {
+    pub const fn width(&self) -> u32 {
+        match self {
+            ImageData::BMP(bmp) => bmp.width(),
+            ImageData::PixelImage(pixel_image) => pixel_image.width(),
+        }
+    }
+
+    pub const fn height(&self) -> u32 {
+        match self {
+            ImageData::BMP(bmp) => bmp.height(),
+            ImageData::PixelImage(pixel_image) => pixel_image.height(),
+        }
+    }
+}
+
+/// An element that displays an image.
+pub struct Image<'a> {
+    image: ImageData<'a>,
+    needs_redraw: bool,
+}
+
+impl<'a> Image<'a> {
+    pub fn new(image: ImageData<'a>) -> Self {
+        Image {
+            image,
+            needs_redraw: false,
+        }
+    }
+
+    /// Sets the image of the image element.
+    pub fn set_image(&mut self, image: ImageData<'a>) {
+        self.image = image;
+        self.needs_redraw = true;
+    }
+
+    pub const fn width(&self) -> u32 {
+        self.image.width() as u32
+    }
+
+    pub const fn height(&self) -> u32 {
+        self.image.height() as u32
+    }
+}
+
+impl<'a, Canvas: DrawingCanvas> Element<Canvas> for Image<'a> {
+    fn draw(&mut self, canvas: &mut Canvas, x: u32, y: u32) -> Option<(u32, u32)> {
+        let width = self.width();
+        let height = self.height();
+
+        let pixels: &mut dyn Iterator<Item = ARGB> = match &self.image {
+            ImageData::BMP(bmp) => &mut bmp.pixels(),
+            ImageData::PixelImage(p) => &mut p.get_pixels().iter().copied(),
+        };
+
+        for (i, color) in pixels.enumerate() {
+            let x = (i % width as usize) as u32 + x;
+            let y = (i / width as usize) as u32 + y;
+            let pixel =
+                Pixel::from_rgb(color.red(), color.green(), color.blue()).with_alpha(color.alpha());
+
+            canvas.draw_pixel(x, y, pixel);
+        }
+
+        self.needs_redraw = false;
+        Some((x + width as u32, y + height as u32))
+    }
+
+    fn needs_redraw(&self) -> bool {
+        self.needs_redraw
+    }
+
+    fn container_height(&self) -> u32 {
+        self.height() as u32
+    }
+
+    fn container_width(&self) -> u32 {
+        self.width() as u32
+    }
+
+    fn draw_height(&self) -> u32 {
+        self.height() as u32
+    }
+
+    fn draw_width(&self) -> u32 {
+        self.width() as u32
+    }
+}
+
 /// Describes how a container should be laid out.
-pub enum ContainerKind {
+pub enum ContainerLayout {
     Horizontal,
-    Vertical,
+    Vertical {
+        /// Aligns the elements in the center of the container.
+        align_center: bool,
+    },
 }
 
 /// A customizable container of elements, that handles their layout and such.
 pub struct Container<Canvas: DrawingCanvas> {
-    kind: ContainerKind,
+    layout: ContainerLayout,
     elements: Vec<Box<dyn Element<Canvas>>>,
     /* FIXME: Save element height and width information and set this true if these were changed */
     elements_changed: bool,
+    max_width: u32,
+    max_height: u32,
 }
 
 impl<Canvas: DrawingCanvas> Container<Canvas> {
-    pub const fn new(kind: ContainerKind) -> Self {
+    pub const fn new(layout: ContainerLayout, max_width: u32, max_height: u32) -> Self {
         Container {
-            kind,
+            layout,
             elements: Vec::new(),
             elements_changed: false,
+            max_width,
+            max_height,
         }
     }
 
-    pub const fn set_layout(&mut self, kind: ContainerKind) {
-        self.kind = kind;
+    pub const fn set_layout(&mut self, layout: ContainerLayout) {
+        self.layout = layout;
         self.elements_changed = true;
     }
 
@@ -289,14 +411,24 @@ impl<Canvas: DrawingCanvas> Container<Canvas> {
 
 impl<Canvas: DrawingCanvas> Element<Canvas> for Container<Canvas> {
     fn draw(&mut self, canvas: &mut Canvas, mut x: u32, mut y: u32) -> Option<(u32, u32)> {
+        let is_centered = matches!(
+            self.layout,
+            ContainerLayout::Vertical { align_center: true }
+        );
         let mut draw_ended_at = None;
 
         for element in self.elements.iter_mut() {
-            let height = element.draw_height();
-            let width = element.draw_width();
+            let draw_x = if is_centered {
+                let element_width = element.draw_width();
+                let container_width = self.max_width;
+                (container_width.saturating_sub(element_width)) / 2
+            } else {
+                x
+            };
+            let draw_y = y;
 
             if self.elements_changed || element.needs_redraw() {
-                let results = element.draw(canvas, x, y);
+                let results = element.draw(canvas, draw_x, draw_y);
 
                 match (results, draw_ended_at) {
                     (None, None) => (),
@@ -310,12 +442,12 @@ impl<Canvas: DrawingCanvas> Element<Canvas> for Container<Canvas> {
                 }
             }
 
-            match self.kind {
-                ContainerKind::Horizontal => {
-                    x += width;
+            match self.layout {
+                ContainerLayout::Horizontal => {
+                    x += element.container_width();
                 }
-                ContainerKind::Vertical => {
-                    y += height;
+                ContainerLayout::Vertical { .. } => {
+                    y += element.container_height();
                 }
             }
         }
@@ -327,6 +459,7 @@ impl<Canvas: DrawingCanvas> Element<Canvas> for Container<Canvas> {
         self.elements_changed || self.elements.iter().any(|ele| ele.needs_redraw())
     }
 
+    #[inline]
     fn draw_height(&self) -> u32 {
         self.elements
             .iter()
@@ -334,6 +467,7 @@ impl<Canvas: DrawingCanvas> Element<Canvas> for Container<Canvas> {
             .sum()
     }
 
+    #[inline]
     fn draw_width(&self) -> u32 {
         self.elements
             .iter()
@@ -342,15 +476,38 @@ impl<Canvas: DrawingCanvas> Element<Canvas> for Container<Canvas> {
             .unwrap_or(0)
     }
 
+    #[inline]
+    fn container_height(&self) -> u32 {
+        self.draw_height()
+    }
+
+    #[inline]
+    fn container_width(&self) -> u32 {
+        self.draw_width()
+    }
+
     fn handle_event(&mut self, event: libopal::Event, mut ele_x: u32, mut ele_y: u32) {
+        let is_centered = matches!(
+            self.layout,
+            ContainerLayout::Vertical { align_center: true }
+        );
+
         for element in self.elements.iter_mut() {
-            element.handle_event(event, ele_x, ele_y);
-            match self.kind {
-                ContainerKind::Horizontal => {
-                    ele_x += element.draw_width();
+            let draw_x = if is_centered {
+                let element_width = element.draw_width();
+                let container_width = self.max_width;
+                (container_width - element_width) / 2
+            } else {
+                ele_x
+            };
+
+            element.handle_event(event, draw_x, ele_y);
+            match self.layout {
+                ContainerLayout::Horizontal => {
+                    ele_x += element.container_width();
                 }
-                ContainerKind::Vertical => {
-                    ele_y += element.draw_height();
+                ContainerLayout::Vertical { .. } => {
+                    ele_y += element.container_height();
                 }
             }
         }

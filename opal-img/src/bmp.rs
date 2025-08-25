@@ -88,12 +88,12 @@ pub struct BMPImage<'a> {
 }
 
 impl<'a> BMPImage<'a> {
-    pub const fn width(&self) -> usize {
-        self.width as usize
+    pub const fn width(&self) -> u32 {
+        self.width
     }
 
-    pub const fn height(&self) -> usize {
-        self.height as usize
+    pub const fn height(&self) -> u32 {
+        self.height
     }
     /// Prase a BMP Image from a given byte slice
     pub fn from_slice(slice: &'a [u8]) -> Result<Self, BMPParseError> {

@@ -115,8 +115,8 @@ impl Window {
         Self::new_from_pixels(
             pos_x,
             pos_y,
-            image.width(),
-            image.height(),
+            image.width() as usize,
+            image.height() as usize,
             image
                 .pixels()
                 .map(|c| Pixel::from_rgb(c.red(), c.green(), c.blue()).with_alpha(c.alpha())),

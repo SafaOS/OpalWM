@@ -49,8 +49,8 @@ impl MiceCursor {
             win_id: win,
             x: 0,
             y: 0,
-            height: cursor_height,
-            width: cursor_width,
+            height: cursor_height as usize,
+            width: cursor_width as usize,
             last_mouse_event: MiceEvent {
                 kind: MouseEventKind::Null,
                 buttons_status: MiceBtnStatus::NO_BUTTONS,
