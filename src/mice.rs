@@ -6,10 +6,10 @@ use std::{
 use opal_abi::com::response::event::{
     Event, HeldMouseButtons, MouseChangeEvent, MouseEnterEvent, MouseLeaveEvent,
 };
+use opal_img::bmp::BMPImage;
 use safa_api::abi::input::{MiceBtnStatus, MiceEvent, MouseEventKind};
 
 use crate::{
-    bmp::BMPImage,
     dlog,
     window::{WINDOWS, WinID, Window, WindowKind},
 };

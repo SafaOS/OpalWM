@@ -4,12 +4,13 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace]
-members = [ "libgem","libopal", "opal-abi"]
+members = [ "libgem","libopal", "opal-abi", "opal-img"]
 
 [dependencies]
 safa-api = { version = "0.4.3", git = "https://github.com/SafaOS/safa-api", features = ["std"] }
 libopal = { path = "libopal" }
 opal-abi = { path = "opal-abi" }
+opal-img = { path = "opal-img" }
 thiserror = "2.0.14"
 zerocopy = "0.8.26"
 zerocopy-derive = "0.8.26"

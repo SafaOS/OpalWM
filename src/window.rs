@@ -12,12 +12,12 @@ use std::{
 
 use indexmap::IndexSet;
 use opal_abi::com::response::{Response, event::Event};
+use opal_img::bmp::BMPImage;
 use rustc_hash::{FxBuildHasher, FxHashMap};
 use safa_api::abi::mem::{MemMapFlags, ShmFlags};
 
 use crate::{
     REALLY_VERBOSE,
-    bmp::BMPImage,
     com::ClientComPipe,
     dlog, elog,
     framebuffer::{self, BG_PIXEL, FB_INFO, Framebuffer, Pixel},
@@ -112,7 +112,15 @@ impl Window {
 
     /// Creates a new Window from a given BMP Image
     pub fn new_from_bmp(pos_x: usize, pos_y: usize, image: BMPImage) -> Window {
-        Self::new_from_pixels(pos_x, pos_y, image.width(), image.height(), image.pixels())
+        Self::new_from_pixels(
+            pos_x,
+            pos_y,
+            image.width(),
+            image.height(),
+            image
+                .pixels()
+                .map(|c| Pixel::from_rgb(c.red(), c.green(), c.blue()).with_alpha(c.alpha())),
+        )
     }
 
     /// Creates a new Window and fills it with `fill_pixels`

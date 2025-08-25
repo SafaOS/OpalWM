@@ -2,7 +2,7 @@ use thiserror::Error;
 use zerocopy::FromBytes;
 use zerocopy_derive::{FromBytes, Immutable, KnownLayout, Unaligned};
 
-use crate::{dlog, framebuffer::Pixel};
+use crate::display::ARGB;
 
 /// The header located at the start of the bitmap
 #[derive(Debug, Clone, Copy, FromBytes, Immutable, Unaligned, KnownLayout)]
@@ -124,13 +124,10 @@ impl<'a> BMPImage<'a> {
             return Err(BMPParseError::Corrupted);
         }
 
-        dlog!("BMPHeader is {header:#x?}");
-
         let dib_header_bytes = take_from_slice(size_of::<DIBHeader>())?;
         let dib_header: DIBHeader = DIBHeader::read_from_bytes(dib_header_bytes)
             .expect("reading DIBHeader should never fail");
 
-        dlog!("DIBHeader is {dib_header:#x?}");
         if dib_header.color_platte_colors != 0 {
             return Err(BMPParseError::Unsupported("Color tables are unsupported"));
         }
@@ -149,7 +146,6 @@ impl<'a> BMPImage<'a> {
                 let bitmasks: BMPBitmasks =
                     BMPBitmasks::read_from_bytes(bitmasks_bytes).expect("Should never fail");
 
-                dlog!("DIB Bitfield masks are: {bitmasks:#x?}");
                 Some(bitmasks)
             }
             COMPRESS_B_RGB => {
@@ -213,7 +209,7 @@ pub struct BMPPixels<'a> {
 }
 
 impl<'a> Iterator for BMPPixels<'a> {
-    type Item = Pixel;
+    type Item = ARGB;
     fn next(&mut self) -> Option<Self::Item> {
         if self.image.height == 0 || self.image.width == 0 {
             return None;
@@ -250,7 +246,7 @@ impl<'a> Iterator for BMPPixels<'a> {
         let alpha =
             (pixel_as_u32 & bitmasks.alpha_channel) >> bitmasks.alpha_channel.trailing_zeros();
 
-        Some(Pixel::from_rgb_with_alpha(
+        Some(ARGB::from_rgba(
             red as u8,
             green as u8,
             blue as u8,
