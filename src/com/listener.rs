@@ -47,17 +47,10 @@ fn handle_connect(connection: UnixSockConnection) {
                 RequestKind::CreateWindow(request) => {
                     let height = request.height() as usize;
                     let width = request.width() as usize;
-                    let pos_x = request.x() as usize;
-                    let pos_y = request.y() as usize;
 
-                    let window = Window::new_filled_with(
-                        pos_x,
-                        pos_y,
-                        width,
-                        height,
-                        Pixel::from_rgb(0, 0, 0),
-                    )
-                    .with_com_pipe(pipe.clone());
+                    let window =
+                        Window::new_filled_with(0, 0, width, height, Pixel::from_rgb(0, 0, 0))
+                            .with_com_pipe(pipe.clone());
 
                     let shm_key = *window.shm_key();
                     window::add_window(window, WindowKind::Normal)

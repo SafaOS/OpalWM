@@ -528,8 +528,24 @@ impl Windows {
         Some((damage1.pos_x, damage1.pos_y))
     }
 
-    /// Adds a window and organizes it depending on `kind` (see [`WindowKind`])
-    pub fn add_window(&mut self, window: Window, kind: WindowKind) -> Option<WinID> {
+    /// Adds a window and organizes it depending on `kind` (see [`WindowKind`]).
+    /// Reposititons the window to fit most of the screen.
+    pub fn add_window(&mut self, mut window: Window, kind: WindowKind) -> Option<WinID> {
+        let screen_width = FB_INFO.width;
+        let screen_height = FB_INFO.height;
+
+        if window.pos_x + window.width > screen_width {
+            window.pos_x = 0;
+        } else {
+            window.pos_x = (screen_width - window.width) / 2;
+        }
+
+        if window.pos_y + window.height > screen_height {
+            window.pos_y = 0;
+        } else {
+            window.pos_y = (screen_height - window.height) / 2;
+        }
+
         let damage = window.damage();
 
         let id = self.add_id()?;
@@ -687,7 +703,8 @@ impl Windows {
 
 pub static WINDOWS: Mutex<Windows> = Mutex::new(Windows::new());
 
-/// Adds a window with `kind` kind, returns the ID of the window
+/// Adds a window with `kind` kind, returns the ID of the window.
+/// Repositions the window to fit most of it on the screen.
 pub fn add_window(window: Window, kind: WindowKind) -> Option<WinID> {
     WINDOWS
         .lock()

@@ -37,7 +37,7 @@ impl RootContainer {
         let window_x = Self::CORNER_RADIUS / 2;
         let window_y = Self::TITLE_HEIGHT;
 
-        let mut win = Window::create(0, 0, real_width, real_height);
+        let mut win = Window::create(real_width, real_height);
 
         win.draw_round_rect(
             0,

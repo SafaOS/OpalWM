@@ -96,9 +96,9 @@ impl Window {
     }
 
     /// Request the creation of a new window from the WM.
-    pub fn create(x: u32, y: u32, width: u32, height: u32) -> Self {
+    pub fn create(width: u32, height: u32) -> Self {
         let resp = send_request(RequestKind::CreateWindow(CreateWindow::new(
-            0, width, height, x, y,
+            0, width, height,
         )))
         .expect("Failed to send Create Window Request");
 

@@ -7,30 +7,18 @@ use crate::com::packet::{BINCODE_CONFIG, MAX_PACKET_SIZE, PacketParseErr};
 #[repr(C)]
 pub struct CreateWindow {
     flags: u32,
-    x: u32,
-    y: u32,
     width: u32,
     height: u32,
 }
 
 impl CreateWindow {
     /// Constructs a new [`CreateWindow`] Request
-    pub const fn new(flags: u32, width: u32, height: u32, x: u32, y: u32) -> Self {
+    pub const fn new(flags: u32, width: u32, height: u32) -> Self {
         Self {
             flags,
             width,
             height,
-            x,
-            y,
         }
-    }
-
-    pub const fn x(&self) -> u32 {
-        self.x
-    }
-
-    pub const fn y(&self) -> u32 {
-        self.y
     }
 
     pub const fn width(&self) -> u32 {
