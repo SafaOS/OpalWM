@@ -116,40 +116,27 @@ impl Gem {
     }
 
     pub fn redraw(&mut self) {
-        if self.root.title_bar.needs_redraw() {
-            let (start_x, start_y) = (self.root.window_x, self.root.title_bar_y);
+        let mut handle_container =
+            |container: &mut Container<Window>, start_x: u32, start_y: u32| {
+                if container.needs_redraw() {
+                    let end = container.draw(&mut self.root.root, start_x, start_y);
 
-            let end = self
-                .root
-                .title_bar
-                .draw(&mut self.root.root, start_x, start_y);
+                    if let Some((end_x, end_y)) = end {
+                        let width = end_x - start_x;
+                        let height = end_y - start_y;
 
-            if let Some((end_x, end_y)) = end {
-                let width = end_x - start_x;
-                let height = end_y - start_y;
+                        self.root.root.redraw(start_x, start_y, width, height);
+                    }
+                }
+            };
 
-                self.root.root.redraw(start_x, start_y, width, height);
-            }
-        }
+        handle_container(
+            &mut self.root.title_bar,
+            self.root.window_x,
+            self.root.title_bar_y,
+        );
 
-        if self.root.body.needs_redraw() {
-            let (start_x, start_y) = (self.root.window_x, self.root.window_y);
-
-            let end = self.root.body.draw(&mut self.root.root, start_x, start_y);
-
-            if let Some((end_x, end_y)) = end {
-                let width = end_x - start_x;
-                let height = end_y - start_y;
-
-                // TODO: Only sync changes
-                _ = width;
-                _ = height;
-
-                self.root
-                    .root
-                    .redraw(0, 0, self.root.root.width(), self.root.root.height());
-            }
-        }
+        handle_container(&mut self.root.body, self.root.window_x, self.root.window_y);
     }
 
     pub fn handle_events_blocking(&mut self) -> DequeuedEvents {

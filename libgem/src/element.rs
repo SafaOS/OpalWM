@@ -114,9 +114,6 @@ impl<RootCanvas: DrawingCanvas> Element<RootCanvas> for Button {
         let width = self.width;
         let height = self.height;
 
-        canvas.draw_round_rect(x, y, width, height, 6, |_, _| {
-            Pixel::from_rgb(0, 0, 0).with_alpha(0)
-        });
         canvas.draw_round_rect(x, y, width, height, 6, |is_border, _| {
             if is_border {
                 self.border_color
@@ -172,7 +169,10 @@ impl<RootCanvas: DrawingCanvas> Element<RootCanvas> for Button {
             libopal::Event::MouseEnter(enter_event) => {
                 (Some(enter_event.x()), Some(enter_event.y()), false)
             }
-            _ => (None, None, false),
+            _ => {
+                self.mouse_hovering = false;
+                (None, None, false)
+            }
         };
         self.was_pressed = is_held;
 
@@ -298,8 +298,15 @@ impl<Canvas: DrawingCanvas> Element<Canvas> for Container<Canvas> {
             if self.elements_changed || element.needs_redraw() {
                 let results = element.draw(canvas, x, y);
 
-                if results.is_some_and(|res| draw_ended_at.is_none_or(|e| res > e)) {
-                    draw_ended_at = results;
+                match (results, draw_ended_at) {
+                    (None, None) => (),
+                    (Some((x, y)), Some((x2, y2))) => {
+                        draw_ended_at = Some((x.max(x2), y.max(y2)));
+                    }
+                    (Some((x, y)), None) => {
+                        draw_ended_at = Some((x, y));
+                    }
+                    (None, Some(_)) => {}
                 }
             }
 
