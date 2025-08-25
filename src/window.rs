@@ -588,7 +588,7 @@ impl Windows {
         }
     }
 
-    /// Returns the ID of the top-most window that is in contact with the given position and size if any.
+    /// Returns the ID of the top-most window that is in contact with the given position and size if any, and also the contact point
     pub fn window_in_contact(
         &self,
         pos_x: usize,
