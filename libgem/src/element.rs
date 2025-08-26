@@ -61,12 +61,14 @@ impl Button {
     const TEXT_COLOR: Pixel = Pixel::from_rgb(0xFF, 0xFF, 0xFF);
 
     pub fn new(width: u32, height: u32, font_height: f32) -> Self {
-        let text = Text::new(
+        let mut text = Text::new(
             font_height,
             font_height,
             Some(height as f32),
             Some(width as f32),
         );
+
+        text.align(Some(crate::text::Align::Center));
 
         Self {
             on_click: None,
@@ -129,8 +131,6 @@ impl<RootCanvas: DrawingCanvas> Element<RootCanvas> for Button {
             }
         });
 
-        // FIXME: Align multi-line buttons to center
-        let align_x = x + ((self.width.saturating_sub(self.text.width() as u32)) / 2);
         let align_y = y + ((self.height.saturating_sub(self.text.height() as u32)) / 2);
 
         if self.mouse_hovering {
@@ -139,13 +139,7 @@ impl<RootCanvas: DrawingCanvas> Element<RootCanvas> for Button {
             self.text.set_color(self.normal_text_color);
         }
 
-        canvas.draw_text(
-            align_x,
-            align_y,
-            x + self.width,
-            y + self.height,
-            &mut self.text,
-        );
+        canvas.draw_text(x, align_y, x + self.width, y + self.height, &mut self.text);
         self.need_redraw = false;
         Some((x + self.width, y + self.height))
     }
@@ -220,6 +214,7 @@ pub struct Label {
 impl Label {
     pub fn new(content: &str, font_size: f32, max_width: f32, max_height: f32) -> Self {
         let mut text = Text::new(font_size, font_size, Some(max_height), Some(max_width));
+        text.align(Some(crate::text::Align::Center));
         text.set_text(content);
 
         Label {

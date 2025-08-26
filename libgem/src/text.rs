@@ -17,9 +17,12 @@ fn font_system() -> MutexGuard<'static, FontSystem> {
         .expect("Failed to get lock on font system")
 }
 
+pub use cosmic_text::Align;
+
 pub struct Text {
     buffer: Buffer,
     color: Pixel,
+    alignment: Option<Align>,
 }
 
 impl Text {
@@ -31,11 +34,25 @@ impl Text {
     }
 
     pub fn biggest_line_width(&self) -> f32 {
-        self.buffer
+        let center = self.alignment == Some(Align::Center);
+
+        let results = self
+            .buffer
             .layout_runs()
-            .map(|run| run.glyphs.iter().map(|glyph| glyph.w).sum::<f32>())
+            .map(|run| run.line_w)
             .max_by(|s, o| s.partial_cmp(o).unwrap_or(std::cmp::Ordering::Equal))
-            .unwrap_or(0.0)
+            .unwrap_or(0.0);
+        let off = if center {
+            if let (Some(width), _) = self.buffer.size() {
+                (width - results) / 2.
+            } else {
+                0.
+            }
+        } else {
+            0.
+        };
+
+        results + (off * 2.)
     }
 
     pub fn font_size(&self) -> f32 {
@@ -59,6 +76,7 @@ impl Text {
         buffer.set_size(&mut font_system, line_max_width, lines_max_height);
         Self {
             buffer,
+            alignment: None,
             color: Pixel::from_rgb(0xFF, 0xFF, 0xFF),
         }
     }
@@ -73,6 +91,10 @@ impl Text {
         self.color = color;
     }
 
+    pub fn align(&mut self, alignment: Option<Align>) {
+        self.alignment = alignment;
+    }
+
     pub fn set_text(&mut self, text: &str) {
         let font_system = &mut font_system();
         self.buffer.set_text(
@@ -81,6 +103,15 @@ impl Text {
             &Attrs::new(),
             cosmic_text::Shaping::Basic,
         );
+
+        let mut changed = false;
+        for line in self.buffer.lines.iter_mut() {
+            changed = changed | line.set_align(self.alignment);
+        }
+
+        if changed {
+            self.buffer.shape_until_scroll(font_system, true);
+        }
     }
 
     pub fn draw(&mut self, mut f: impl FnMut(i32, i32, u32, u32, Pixel)) {
