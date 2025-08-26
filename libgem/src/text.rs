@@ -101,7 +101,7 @@ impl Text {
             font_system,
             text,
             &Attrs::new(),
-            cosmic_text::Shaping::Basic,
+            cosmic_text::Shaping::Advanced,
         );
 
         let mut changed = false;
