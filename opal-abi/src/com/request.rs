@@ -90,6 +90,8 @@ pub enum RequestKind {
     CreateWindow(CreateWindow),
     /// See [`DamageWindow`]
     DamageWindow(DamageWindow),
+    /// Gets screen info (eg. width, height)
+    GetScreenInfo,
 }
 
 #[derive(Encode, Decode, Clone, Copy, Debug)]

@@ -7,7 +7,7 @@ use std::{
 use opal_abi::com::{
     packet::MAX_PACKET_SIZE,
     request::{Request, RequestKind},
-    response::{OkResponse, Response},
+    response::{OkResponse, Response, ScreenInfo},
 };
 use safa_api::sockets::UnixSockConnection;
 
@@ -117,4 +117,22 @@ pub fn init() {
         send_request(RequestKind::Ping).is_ok_and(|o| o == Response::Ok(OkResponse::Success)),
         "Ping request, responded with an error"
     )
+}
+
+static SCREEN_INFO: LazyLock<ScreenInfo> = LazyLock::new(|| {
+    let screen_info = send_request(RequestKind::GetScreenInfo).expect("Failed to get screen info");
+    let Response::Ok(OkResponse::ScreenInfo(info)) = screen_info else {
+        unreachable!(
+            "Received an unexpected response from the WM, request: {:?}, response: {:?}",
+            RequestKind::GetScreenInfo,
+            screen_info
+        )
+    };
+
+    info
+});
+
+/// Returns the (width, height) of the screen
+pub fn get_screen_dimensions() -> (u32, u32) {
+    (SCREEN_INFO.width, SCREEN_INFO.height)
 }

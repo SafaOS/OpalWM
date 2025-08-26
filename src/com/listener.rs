@@ -6,14 +6,14 @@ use std::{
 
 use opal_abi::com::{
     request::RequestKind,
-    response::{CreateWindowResp, OkResponse, Response, error::ResponseError},
+    response::{CreateWindowResp, OkResponse, Response, ScreenInfo, error::ResponseError},
 };
 use safa_api::sockets::{SockKind, UnixListenerBuilder, UnixSockConnection};
 
 use crate::{
     com::{ClientComPipe, ReadError},
     dlog, elog,
-    framebuffer::Pixel,
+    framebuffer::{FB_INFO, Pixel},
     log, logging,
     window::{self, WINDOWS, Window, WindowKind},
     wlog,
@@ -72,6 +72,13 @@ fn handle_connect(connection: UnixSockConnection) {
                 .map(|()| OkResponse::Success)
                 .map_err(|()| ResponseError::UnknownWindow),
                 RequestKind::Ping => Ok(OkResponse::Success),
+                RequestKind::GetScreenInfo => {
+                    let fb_info = *FB_INFO;
+                    let width = fb_info.width as u32;
+                    let height = fb_info.height as u32;
+
+                    Ok(OkResponse::ScreenInfo(ScreenInfo { width, height }))
+                }
             },
             Err(read_error) => match read_error {
                 ReadError::ParseErr(e) => Err(ResponseError::from(e)),

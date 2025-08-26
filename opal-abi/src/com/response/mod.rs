@@ -41,12 +41,21 @@ impl CreateWindowResp {
     }
 }
 
+#[derive(Debug, Encode, Decode, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
+/// Response of [`super::request::RequestKind::GetScreenInfo`]
+pub struct ScreenInfo {
+    pub width: u32,
+    pub height: u32,
+}
+
 #[derive(Debug, PartialEq, Eq, Encode, Decode)]
 #[repr(u32)]
 /// Represents an Ok response sent by the WM as a reply to a Request
 pub enum OkResponse {
     Success,
     WindowCreated(CreateWindowResp),
+    ScreenInfo(ScreenInfo),
 }
 
 #[derive(Debug, Encode, Decode, PartialEq, Eq)]
