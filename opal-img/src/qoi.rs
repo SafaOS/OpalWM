@@ -8,8 +8,8 @@ use crate::{PixelImage, display::ARGB};
 struct QOIHeader {
     // qoif
     magic: [u8; 4],
-    width: u32,
-    height: u32,
+    width: [u8; 4],
+    height: [u8; 4],
     channels: u8,
     colorspace: u8,
 }
@@ -30,6 +30,7 @@ const QOI_OP_LUMA_END: u8 = 191;
 const QOI_OP_RUN_START: u8 = 192;
 const QOI_OP_RUN_END: u8 = 253;
 
+#[derive(Debug, Clone, Copy)]
 /// An error during decoding of a QOI image.
 pub enum QOIDecodeError {
     InvalidMagic,
@@ -72,16 +73,16 @@ impl QOIImage {
         if header.magic != *b"qoif" {
             return Err(QOIDecodeError::InvalidMagic);
         }
-        let width = header.width;
-        let height = header.height;
+        let width = u32::from_be_bytes(header.width);
+        let height = u32::from_be_bytes(header.height);
 
-        if header.channels != 3 /* RGB */ || header.channels != 4
+        if header.channels != 3 /* RGB */ && header.channels != 4
         /* RGBA */
         {
             return Err(QOIDecodeError::UnsupportedChannel);
         }
 
-        if header.colorspace != 0 /* sRGB with linear alpha */ || header.colorspace != 1
+        if header.colorspace != 0 /* sRGB with linear alpha */ && header.colorspace != 1
         /* all channels linear */
         {
             return Err(QOIDecodeError::UnsupportedColorspace);
@@ -93,23 +94,22 @@ impl QOIImage {
 
         let mut previous_pixels = [ARGB::from_rgba(0, 0, 0, 0); 64];
         let calc_pixel_index = |c: ARGB| {
-            c.red() as usize * 3
+            (c.red() as usize * 3
                 + c.green() as usize * 5
                 + c.blue() as usize * 7
-                + c.alpha() as usize * 11
+                + c.alpha() as usize * 11)
+                % 64
         };
 
         let mut pv_pixel = ARGB::from_rgba(0, 0, 0, 0xFF);
 
         let mut fill_output = |px: ARGB, copy_amount: usize| {
             if output_index >= output_pixels_slice.len() {
-                return Err(QOIDecodeError::InvalidOperation);
+                return Ok(());
             }
 
             let rest_of_output = &mut output_pixels_slice[output_index..];
-            if rest_of_output.len() < copy_amount {
-                return Err(QOIDecodeError::InvalidOperation);
-            }
+            let copy_amount = copy_amount.min(rest_of_output.len());
             rest_of_output[..copy_amount].fill(px);
             output_index += copy_amount;
             Ok(())
@@ -139,8 +139,12 @@ impl QOIImage {
                     continue;
                 }
                 [b @ QOI_OP_RUN_START..=QOI_OP_RUN_END, tail @ ..] => {
+                    assert_ne!(*b, QOI_OP_RGB);
+                    assert_ne!(*b, QOI_OP_RGBA);
+
                     curr = tail;
-                    let amount = b & 0b00111111;
+                    // bias of -1
+                    let amount = (b & 0b111111) + 1;
                     fill_output(pv_pixel, amount as usize)?;
                     continue;
                 }
@@ -151,14 +155,14 @@ impl QOIImage {
                     let diff_b = b & 0b11;
                     let diff_signed = |diff: u8| -2i8 + (diff as i8);
 
-                    let diff_r = diff_signed(diff_r);
-                    let diff_g = diff_signed(diff_g);
-                    let diff_b = diff_signed(diff_b);
+                    let vr = diff_signed(diff_r);
+                    let vg = diff_signed(diff_g);
+                    let vb = diff_signed(diff_b);
 
                     let new_pixel = ARGB::from_rgba(
-                        pv_pixel.red().wrapping_add_signed(diff_r),
-                        pv_pixel.green().wrapping_add_signed(diff_g),
-                        pv_pixel.blue().wrapping_add_signed(diff_b),
+                        pv_pixel.red().wrapping_add_signed(vr),
+                        pv_pixel.green().wrapping_add_signed(vg),
+                        pv_pixel.blue().wrapping_add_signed(vb),
                         pv_pixel.alpha(),
                     );
 
@@ -171,19 +175,17 @@ impl QOIImage {
                 ] => {
                     curr = tail;
                     let dg = byte0 & 0b111111;
-                    let db_dg = byte1 & 0b1111;
                     let dr_dg = (byte1 >> 4) & 0b1111;
+                    let db_dg = byte1 & 0b1111;
 
-                    let s_dg = (-32i8) + dg as i8;
-                    let s_db_dg = (-8i8) + db_dg as i8;
-                    let s_dr_dg = (-8i8) + dr_dg as i8;
+                    let vg = (-32i8) + dg as i8;
+                    let vb = (-8i8) + db_dg as i8 + vg;
+                    let vr = (-8i8) + dr_dg as i8 + vg;
 
-                    let db = s_db_dg + s_dg;
-                    let dr = s_dr_dg + s_dg;
                     let new_pixel = ARGB::from_rgba(
-                        pv_pixel.red().wrapping_add_signed(dr),
-                        pv_pixel.green().wrapping_add_signed(db),
-                        pv_pixel.blue().wrapping_add_signed(db),
+                        pv_pixel.red().wrapping_add_signed(vr),
+                        pv_pixel.green().wrapping_add_signed(vg),
+                        pv_pixel.blue().wrapping_add_signed(vb),
                         pv_pixel.alpha(),
                     );
 
