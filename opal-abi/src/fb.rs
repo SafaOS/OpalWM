@@ -9,6 +9,20 @@ pub struct Pixel {
 }
 
 impl Pixel {
+    pub const BLACK: Self = Self {
+        blue: 0,
+        green: 0,
+        red: 0,
+        alpha: 0xFF,
+    };
+
+    pub const WHITE: Self = Self {
+        blue: 255,
+        green: 255,
+        red: 255,
+        alpha: 0xFF,
+    };
+
     pub const fn red(&self) -> u8 {
         self.red
     }

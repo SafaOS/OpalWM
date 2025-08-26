@@ -241,8 +241,14 @@ pub struct Label {
 }
 
 impl Label {
-    pub fn new(content: &str, font_size: f32, max_width: f32, max_height: f32) -> Self {
-        let mut text = Text::new(font_size, font_size, Some(max_height), Some(max_width));
+    pub fn new(
+        content: &str,
+        font_size: f32,
+        line_height: f32,
+        max_width: f32,
+        max_height: f32,
+    ) -> Self {
+        let mut text = Text::new(font_size, line_height, Some(max_height), Some(max_width));
         text.align(Some(crate::text::Align::Center));
         text.set_text(content);
 
