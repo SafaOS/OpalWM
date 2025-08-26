@@ -1,6 +1,11 @@
 /// Microsoft BMP image format
 pub mod bmp;
+/// QOI image format
+pub mod qoi;
+
 pub use bmp::BMPImage;
+pub use qoi::QOIImage;
+
 use resize::{Pixel::RGBA8, Resizer, px::RGBA};
 
 use crate::display::ARGB;
