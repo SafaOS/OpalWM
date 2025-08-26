@@ -22,6 +22,8 @@ struct RootContainer {
     body: Container<Window>,
     title_bar: Container<Window>,
     title_bar_y: u32,
+    bg_color: Pixel,
+    border_color: Pixel,
 }
 
 impl RootContainer {
@@ -32,6 +34,9 @@ impl RootContainer {
     const DEFAULT_FONT_SIZE: u32 = 12;
 
     fn new(width: u32, height: u32, title: &str) -> Self {
+        let bg_color = Self::BG_COLOR;
+        let border_color = Self::BORDER_COLOR;
+
         let real_width = width + Self::CORNER_RADIUS;
         let real_height = height + Self::TITLE_HEIGHT + 2;
         let window_x = Self::CORNER_RADIUS / 2;
@@ -52,10 +57,11 @@ impl RootContainer {
                     if line_num < Self::TITLE_HEIGHT {
                         Self::BORDER_COLOR
                     } else {
-                        Self::BG_COLOR
+                        bg_color
                     }
                 }
             },
+            None,
         );
         win.redraw(0, 0, real_width, real_height);
 
@@ -103,6 +109,8 @@ impl RootContainer {
             ),
             title_bar,
             title_bar_y,
+            bg_color,
+            border_color,
         }
     }
 }
@@ -129,9 +137,9 @@ impl Gem {
 
     pub fn redraw(&mut self) {
         let mut handle_container =
-            |container: &mut Container<Window>, start_x: u32, start_y: u32| {
+            |container: &mut Container<Window>, start_x: u32, start_y: u32, bg_color: Pixel| {
                 if container.needs_redraw() {
-                    let end = container.draw(&mut self.root.root, start_x, start_y);
+                    let end = container.draw(&mut self.root.root, start_x, start_y, bg_color);
 
                     if let Some((end_x, end_y)) = end {
                         let width = end_x - start_x;
@@ -146,9 +154,15 @@ impl Gem {
             &mut self.root.title_bar,
             self.root.window_x,
             self.root.title_bar_y,
+            self.root.border_color,
         );
 
-        handle_container(&mut self.root.body, self.root.window_x, self.root.window_y);
+        handle_container(
+            &mut self.root.body,
+            self.root.window_x,
+            self.root.window_y,
+            self.root.bg_color,
+        );
     }
 
     pub fn handle_events_blocking(&mut self) -> DequeuedEvents {

@@ -4,12 +4,23 @@ use libopal::window::Window;
 use crate::text::Text;
 
 pub trait DrawingCanvas {
-    fn draw_pixel(&mut self, x: u32, y: u32, pixel: Pixel);
+    /// Draw a pixel `pixel` at the given coordinates.
+    /// by default alpha blends with the previously drawn pixel at the same location, however if `on_bg` is `Some`, it will instead alpha blend `pixel` with the `on_bg` pixel and use that as the final results.
+    fn draw_pixel(&mut self, x: u32, y: u32, pixel: Pixel, on_bg: Option<Pixel>);
 
     fn width(&self) -> u32;
     fn height(&self) -> u32;
 
-    fn draw_text(&mut self, start_x: u32, start_y: u32, max_x: u32, max_y: u32, text: &mut Text) {
+    #[inline]
+    fn draw_text(
+        &mut self,
+        start_x: u32,
+        start_y: u32,
+        max_x: u32,
+        max_y: u32,
+        text: &mut Text,
+        on_bg: Option<Pixel>,
+    ) {
         text.draw(|x, y, _, _, color| {
             let x = x as u32 + start_x;
             let y = y as u32 + start_y;
@@ -18,37 +29,68 @@ pub trait DrawingCanvas {
                 return;
             }
 
-            self.draw_pixel(x, y, color);
+            self.draw_pixel(x, y, color, on_bg);
         });
     }
 
     #[inline]
-    fn draw_rect_points(&mut self, x1: u32, y1: u32, x2: u32, y2: u32, pixel: Pixel) {
+    fn draw_rect_points(
+        &mut self,
+        x1: u32,
+        y1: u32,
+        x2: u32,
+        y2: u32,
+        pixel: Pixel,
+        on_bg: Option<Pixel>,
+    ) {
         // includes x2 and y2
         let width = (x2 - x1) + 1;
         let height = (y2 - y1) + 1;
 
-        self.draw_rect(x1, y1, width, height, pixel);
+        self.draw_rect(x1, y1, width, height, pixel, on_bg);
     }
 
     #[inline]
-    fn draw_rect(&mut self, x: u32, y: u32, width: u32, height: u32, pixel: Pixel) {
+    fn draw_rect(
+        &mut self,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+        pixel: Pixel,
+        on_bg: Option<Pixel>,
+    ) {
         for row in 0..height {
             for col in 0..width {
-                self.draw_pixel(col + x, row + y, pixel);
+                self.draw_pixel(col + x, row + y, pixel, on_bg);
             }
         }
     }
 
     #[inline]
-    fn draw_line(&mut self, x0: u32, y0: u32, x1: u32, y1: u32, pixel: Pixel) {
-        self.draw_rect_points(x0, y0, x1, y1, pixel)
+    fn draw_line(
+        &mut self,
+        x0: u32,
+        y0: u32,
+        x1: u32,
+        y1: u32,
+        pixel: Pixel,
+        on_bg: Option<Pixel>,
+    ) {
+        self.draw_rect_points(x0, y0, x1, y1, pixel, on_bg)
     }
 
+    #[inline]
     /// Draw a circle, starting at (x, y) which is the top-left corner of the circle,
     /// and ending at (x + radius*2, y + radius*2).
-    #[inline]
-    fn draw_circle(&mut self, x: u32, y: u32, radius: u32, border_color: Pixel) {
+    fn draw_circle(
+        &mut self,
+        x: u32,
+        y: u32,
+        radius: u32,
+        border_color: Pixel,
+        on_bg: Option<Pixel>,
+    ) {
         let x = x + (radius * 2);
         let y = y + (radius * 2);
 
@@ -71,24 +113,26 @@ pub trait DrawingCanvas {
             f += ddf_x;
 
             // Bottom Right corner
-            self.draw_pixel(x + xx - radius, y + yy - radius, border_color);
-            self.draw_pixel(x + yy - radius, y + xx - radius, border_color);
+            self.draw_pixel(x + xx - radius, y + yy - radius, border_color, on_bg);
+            self.draw_pixel(x + yy - radius, y + xx - radius, border_color, on_bg);
             // Top Right corner
-            self.draw_pixel(x + xx - radius, y - yy - radius, border_color);
-            self.draw_pixel(x + yy - radius, y - xx - radius, border_color);
+            self.draw_pixel(x + xx - radius, y - yy - radius, border_color, on_bg);
+            self.draw_pixel(x + yy - radius, y - xx - radius, border_color, on_bg);
             // Bottom Left corner
-            self.draw_pixel(x - xx - radius, y + yy - radius, border_color);
-            self.draw_pixel(x - yy - radius, y + xx - radius, border_color);
+            self.draw_pixel(x - xx - radius, y + yy - radius, border_color, on_bg);
+            self.draw_pixel(x - yy - radius, y + xx - radius, border_color, on_bg);
             // Top Left corner
-            self.draw_pixel(x - xx - radius, y - yy - radius, border_color);
-            self.draw_pixel(x - yy - radius, y - xx - radius, border_color);
+            self.draw_pixel(x - xx - radius, y - yy - radius, border_color, on_bg);
+            self.draw_pixel(x - yy - radius, y - xx - radius, border_color, on_bg);
         }
     }
 
+    #[inline]
     /// Draws a rounded rectangle on the canvas with the given border color and fills with the given fill color got by calling get_color(false, line_num),
     /// the border color got by calling get_color(true, line_num)
     ///
     /// as get_color(is_border: bool, line_num: u32) -> Pixel
+    /// on_bg An optional pixel color to alpha blend every pixel we draw with instead of the actual background color
     fn draw_round_rect<F: Fn(bool, u32) -> Pixel>(
         &mut self,
         start_x: u32,
@@ -97,6 +141,7 @@ pub trait DrawingCanvas {
         height: u32,
         radius: u32,
         get_color: F,
+        on_bg: Option<Pixel>,
     ) {
         // Draws two corners of a rounded rectangle, and then connects them with a line of a color got by the function get_color
         let mut draw_2corners = |x0: u32, x1: u32, y: u32, top: bool| {
@@ -153,17 +198,17 @@ pub trait DrawingCanvas {
                 let fill_flipped_color = get_color(false, y_line_flipped);
 
                 // Bottom or Top left corner
-                self.draw_pixel(draw_x0, draw_y, color);
-                self.draw_pixel(draw_x0_flipped, draw_y_flipped, flipped_color);
+                self.draw_pixel(draw_x0, draw_y, color, on_bg);
+                self.draw_pixel(draw_x0_flipped, draw_y_flipped, flipped_color, on_bg);
 
                 // Bottom or Top right corner
-                self.draw_pixel(draw_x1, draw_y, color);
-                self.draw_pixel(draw_x1_flipped, draw_y_flipped, flipped_color);
+                self.draw_pixel(draw_x1, draw_y, color, on_bg);
+                self.draw_pixel(draw_x1_flipped, draw_y_flipped, flipped_color, on_bg);
 
                 // Draw the fill
                 // not flipped
                 if yy != last_yy {
-                    self.draw_line(draw_x0 + 1, draw_y, draw_x1 - 1, draw_y, fill_color);
+                    self.draw_line(draw_x0 + 1, draw_y, draw_x1 - 1, draw_y, fill_color, on_bg);
                 }
 
                 // flipped
@@ -174,6 +219,7 @@ pub trait DrawingCanvas {
                         draw_x1_flipped - 1,
                         draw_y_flipped,
                         fill_flipped_color,
+                        on_bg,
                     );
                 }
             }
@@ -191,17 +237,17 @@ pub trait DrawingCanvas {
 
         // Draws the border
         // Top line
-        self.draw_line(x0 + radius, y0, x1 - radius, y0, border_top_color);
+        self.draw_line(x0 + radius, y0, x1 - radius, y0, border_top_color, on_bg);
         // Bottom line
-        self.draw_line(x0 + radius, y1, x1 - radius, y1, border_bottom_color);
+        self.draw_line(x0 + radius, y1, x1 - radius, y1, border_bottom_color, on_bg);
         // Left line
-        self.draw_line(x0, y0 + radius, x0, y1 - radius, border_top_color);
+        self.draw_line(x0, y0 + radius, x0, y1 - radius, border_top_color, on_bg);
         // Right line
-        self.draw_line(x1, y0 + radius, x1, y1 - radius, border_top_color);
+        self.draw_line(x1, y0 + radius, x1, y1 - radius, border_top_color, on_bg);
 
         for y in (y0 + radius)..=(y1 - radius) {
             let fill_color = get_color(false, y - start_y);
-            self.draw_line(x0 + 1, y, x1 - 1, y, fill_color);
+            self.draw_line(x0 + 1, y, x1 - 1, y, fill_color, on_bg);
         }
     }
 }
@@ -217,10 +263,16 @@ impl DrawingCanvas for Window {
         self.width()
     }
 
-    #[inline]
-    fn draw_pixel(&mut self, x: u32, y: u32, pixel: Pixel) {
+    #[inline(always)]
+    fn draw_pixel(&mut self, x: u32, y: u32, pixel: Pixel, on_bg: Option<Pixel>) {
         let index = (y * self.width() + x) as usize;
-        let bottom = &mut self.pixels_mut()[index];
+
+        let pixels = self.pixels_mut();
+
+        let bottom = &mut pixels[index];
+        if let Some(on_bg) = on_bg {
+            *bottom = on_bg;
+        }
         *bottom = pixel.blend(bottom);
     }
 }

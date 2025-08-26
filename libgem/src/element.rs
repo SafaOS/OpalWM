@@ -26,7 +26,15 @@ pub trait Element<RootCanvas: DrawingCanvas> {
 
     /// Draws the element onto the canvas, given a relative position of the element from the canvas.
     /// Returns either None or the end position of the element as if it was a rectangle, and that is (x, y) where x is the rightmost x coordinate and y is the lowest y coordinate of the element.
-    fn draw(&mut self, canvas: &mut RootCanvas, x: u32, y: u32) -> Option<(u32, u32)>;
+    ///
+    /// The `bg_color` parameter specifies the background color that the element is supposed to draw on, before drawing the element you likely want to draw the background color without alpha-blending first.
+    fn draw(
+        &mut self,
+        canvas: &mut RootCanvas,
+        x: u32,
+        y: u32,
+        bg_color: Pixel,
+    ) -> Option<(u32, u32)>;
     /// Returns true if the element needs to be redrawn.
     fn needs_redraw(&self) -> bool;
     /// Handles an event for the element, given a relative position of the element from the canvas.
@@ -117,19 +125,33 @@ impl Button {
 }
 
 impl<RootCanvas: DrawingCanvas> Element<RootCanvas> for Button {
-    fn draw(&mut self, canvas: &mut RootCanvas, x: u32, y: u32) -> Option<(u32, u32)> {
+    fn draw(
+        &mut self,
+        canvas: &mut RootCanvas,
+        x: u32,
+        y: u32,
+        bg_color: Pixel,
+    ) -> Option<(u32, u32)> {
         let width = self.width;
         let height = self.height;
 
-        canvas.draw_round_rect(x, y, width, height, 6, |is_border, _| {
-            if is_border {
-                self.border_color
-            } else if self.mouse_hovering {
-                self.hover_color
-            } else {
-                self.normal_color
-            }
-        });
+        canvas.draw_round_rect(
+            x,
+            y,
+            width,
+            height,
+            6,
+            |is_border, _| {
+                if is_border {
+                    self.border_color
+                } else if self.mouse_hovering {
+                    self.hover_color
+                } else {
+                    self.normal_color
+                }
+            },
+            Some(bg_color),
+        );
 
         let align_y = y + ((self.height.saturating_sub(self.text.height() as u32)) / 2);
 
@@ -139,7 +161,14 @@ impl<RootCanvas: DrawingCanvas> Element<RootCanvas> for Button {
             self.text.set_color(self.normal_text_color);
         }
 
-        canvas.draw_text(x, align_y, x + self.width, y + self.height, &mut self.text);
+        canvas.draw_text(
+            x,
+            align_y,
+            x + self.width,
+            y + self.height,
+            &mut self.text,
+            None,
+        );
         self.need_redraw = false;
         Some((x + self.width, y + self.height))
     }
@@ -255,11 +284,11 @@ impl<Canvas: DrawingCanvas> Element<Canvas> for Label {
         self.text.biggest_line_width() as u32
     }
 
-    fn draw(&mut self, canvas: &mut Canvas, x: u32, y: u32) -> Option<(u32, u32)> {
+    fn draw(&mut self, canvas: &mut Canvas, x: u32, y: u32, bg_color: Pixel) -> Option<(u32, u32)> {
         let max_x = x + self.width;
         let max_y = y + self.height;
 
-        canvas.draw_text(x, y, max_x, max_y, &mut self.text);
+        canvas.draw_text(x, y, max_x, max_y, &mut self.text, Some(bg_color));
         self.needs_redraw = false;
         Some((max_x, max_y))
     }
@@ -320,7 +349,7 @@ impl<'a> Image<'a> {
 }
 
 impl<'a, Canvas: DrawingCanvas> Element<Canvas> for Image<'a> {
-    fn draw(&mut self, canvas: &mut Canvas, x: u32, y: u32) -> Option<(u32, u32)> {
+    fn draw(&mut self, canvas: &mut Canvas, x: u32, y: u32, bg_color: Pixel) -> Option<(u32, u32)> {
         let width = self.width();
         let height = self.height();
 
@@ -335,7 +364,7 @@ impl<'a, Canvas: DrawingCanvas> Element<Canvas> for Image<'a> {
             let pixel =
                 Pixel::from_rgb(color.red(), color.green(), color.blue()).with_alpha(color.alpha());
 
-            canvas.draw_pixel(x, y, pixel);
+            canvas.draw_pixel(x, y, pixel, Some(bg_color));
         }
 
         self.needs_redraw = false;
@@ -405,7 +434,13 @@ impl<Canvas: DrawingCanvas> Container<Canvas> {
 }
 
 impl<Canvas: DrawingCanvas> Element<Canvas> for Container<Canvas> {
-    fn draw(&mut self, canvas: &mut Canvas, mut x: u32, mut y: u32) -> Option<(u32, u32)> {
+    fn draw(
+        &mut self,
+        canvas: &mut Canvas,
+        mut x: u32,
+        mut y: u32,
+        bg_color: Pixel,
+    ) -> Option<(u32, u32)> {
         let is_centered = matches!(
             self.layout,
             ContainerLayout::Vertical { align_center: true }
@@ -423,7 +458,7 @@ impl<Canvas: DrawingCanvas> Element<Canvas> for Container<Canvas> {
             let draw_y = y;
 
             if self.elements_changed || element.needs_redraw() {
-                let results = element.draw(canvas, draw_x, draw_y);
+                let results = element.draw(canvas, draw_x, draw_y, bg_color);
 
                 match (results, draw_ended_at) {
                     (None, None) => (),
@@ -447,6 +482,7 @@ impl<Canvas: DrawingCanvas> Element<Canvas> for Container<Canvas> {
             }
         }
 
+        self.elements_changed = false;
         draw_ended_at
     }
 
