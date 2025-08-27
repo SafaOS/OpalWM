@@ -523,7 +523,10 @@ impl<Canvas: DrawingCanvas> Element<Canvas> for Container<Canvas> {
         self.draw_width()
     }
 
-    fn handle_event(&mut self, event: libopal::Event, mut ele_x: u32, mut ele_y: u32) {
+    fn handle_event(&mut self, event: libopal::Event, start_x: u32, mut start_y: u32) {
+        let mut ele_x = start_x;
+        let mut ele_y = start_y;
+
         let is_centered = matches!(
             self.layout,
             ContainerLayout::Vertical { align_center: true }
@@ -541,7 +544,13 @@ impl<Canvas: DrawingCanvas> Element<Canvas> for Container<Canvas> {
             element.handle_event(event, draw_x, ele_y);
             match self.layout {
                 ContainerLayout::Horizontal => {
-                    ele_x += element.container_width();
+                    let next_x = ele_x + element.container_width();
+                    if next_x - start_x >= self.max_width {
+                        ele_x = start_x;
+                        ele_y += element.container_height();
+                    } else {
+                        ele_x = next_x;
+                    }
                 }
                 ContainerLayout::Vertical { .. } => {
                     ele_y += element.container_height();
