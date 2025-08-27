@@ -1,19 +1,47 @@
-use bincode::{Decode, Encode};
+use bincode::{Decode, Encode, impl_borrow_decode};
+use bitflags::bitflags;
 
 use crate::com::packet::{BINCODE_CONFIG, MAX_PACKET_SIZE, PacketParseErr};
+
+bitflags! {
+    /// Flags to create a new window with
+    #[derive(Debug, Clone, Copy)]
+    pub struct WindowFlags: u32 {
+        const BG_WINDOW = 1 << 0;
+    }
+}
+
+impl Encode for WindowFlags {
+    fn encode<E: bincode::enc::Encoder>(
+        &self,
+        encoder: &mut E,
+    ) -> Result<(), bincode::error::EncodeError> {
+        u32::encode(&self.bits(), encoder)
+    }
+}
+
+impl<Context> Decode<Context> for WindowFlags {
+    fn decode<D: bincode::de::Decoder<Context = Context>>(
+        decoder: &mut D,
+    ) -> Result<Self, bincode::error::DecodeError> {
+        u32::decode(decoder).map(|bits| WindowFlags::from_bits_retain(bits))
+    }
+}
+
+impl_borrow_decode!(WindowFlags);
 
 /// A Request to ask the WM to Create a new Window
 #[derive(Debug, Clone, Copy, Encode, Decode)]
 #[repr(C)]
 pub struct CreateWindow {
-    flags: u32,
+    flags: WindowFlags,
     width: u32,
     height: u32,
 }
 
 impl CreateWindow {
     /// Constructs a new [`CreateWindow`] Request
-    pub const fn new(flags: u32, width: u32, height: u32) -> Self {
+    pub const fn new(flags: WindowFlags, width: u32, height: u32) -> Self {
         Self {
             flags,
             width,
@@ -27,6 +55,10 @@ impl CreateWindow {
 
     pub const fn height(&self) -> u32 {
         self.height
+    }
+
+    pub const fn flags(&self) -> WindowFlags {
+        self.flags
     }
 }
 

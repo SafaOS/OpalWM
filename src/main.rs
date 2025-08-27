@@ -1,8 +1,7 @@
 use crate::com::listener;
-use crate::framebuffer::Pixel;
 use crate::logging::disable_terminal_logging;
 use crate::mice::MiceCursor;
-use crate::window::{WINDOWS, Window, WindowKind, redraw};
+use crate::window::redraw;
 
 /// Set to true if you want really verbose slow information
 ///
@@ -26,23 +25,6 @@ fn main() {
     log!("WM Starting");
     disable_terminal_logging();
     framebuffer::clear();
-    {
-        let mut w = WINDOWS.lock().expect("failed to get lock on windows");
-        w.add_window(
-            Window::new_filled_with(213, 442, 200, 200, Pixel::from_rgb(0, 0xFF, 0)),
-            WindowKind::Normal,
-        );
-        w.add_window(
-            Window::new_filled_with(
-                270,
-                400,
-                200,
-                200,
-                Pixel::from_rgb_with_alpha(0xFF, 0, 0, 0xFF / 2),
-            ),
-            WindowKind::Normal,
-        );
-    }
     std::thread::spawn(main_loop);
     listener::listen()
 }

@@ -50,6 +50,7 @@ pub struct QOIImage {
 }
 
 impl QOIImage {
+    // TODO: Decode from reader
     pub fn decode(bytes: &[u8]) -> Result<Self, QOIDecodeError> {
         let mut curr = bytes;
         let mut take_from_slice = |size: usize| {
@@ -226,6 +227,10 @@ impl QOIImage {
         new_height: u32,
         scale_alg: crate::ScaleType,
     ) -> PixelImage {
+        if new_width == self.width && new_height == self.height {
+            return self.into();
+        }
+
         PixelImage::new_scaled(
             self.pixels.iter().copied(),
             self.width(),

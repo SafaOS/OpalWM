@@ -4,6 +4,7 @@ use std::{
     sync::Arc,
 };
 
+use libopal::window::WindowFlags;
 use opal_abi::com::{
     request::RequestKind,
     response::{CreateWindowResp, OkResponse, Response, ScreenInfo, error::ResponseError},
@@ -30,6 +31,17 @@ fn spawn_hello() {
     }
 }
 
+fn spawn_desktop() {
+    if let Err(err) = Command::new("sys:/bin/desktop")
+        .stdout(Stdio::from(logging::console_clone()))
+        .stderr(Stdio::from(logging::console_clone()))
+        .stdin(Stdio::from(logging::console_clone()))
+        .spawn()
+    {
+        elog!("Failed to spawn desktop process: {}", err);
+    }
+}
+
 fn handle_connect(connection: UnixSockConnection) {
     dlog!("Handling a new connection");
 
@@ -47,13 +59,20 @@ fn handle_connect(connection: UnixSockConnection) {
                 RequestKind::CreateWindow(request) => {
                     let height = request.height() as usize;
                     let width = request.width() as usize;
+                    let flags = request.flags();
 
                     let window =
                         Window::new_filled_with(0, 0, width, height, Pixel::from_rgb(0, 0, 0))
                             .with_com_pipe(pipe.clone());
 
                     let shm_key = *window.shm_key();
-                    window::add_window(window, WindowKind::Normal)
+
+                    let mut kind = WindowKind::Normal;
+                    if flags.contains(WindowFlags::BG_WINDOW) {
+                        kind = WindowKind::Background;
+                    }
+
+                    window::add_window(window, kind)
                         .map(|id| {
                             dlog!("Added Window {id}, with the SHM Key {shm_key} for a client");
                             window_ids.push(id);
@@ -130,6 +149,7 @@ pub fn listen() -> ! {
     log!("WM Listening at {}", addr);
 
     spawn_hello();
+    spawn_desktop();
 
     loop {
         let connection = listener

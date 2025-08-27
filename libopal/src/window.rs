@@ -10,6 +10,7 @@ use safa_api::{
 };
 
 use crate::send_request;
+pub use opal_abi::com::request::WindowFlags;
 pub use opal_abi::fb::Pixel;
 
 pub struct Window {
@@ -96,9 +97,9 @@ impl Window {
     }
 
     /// Request the creation of a new window from the WM.
-    pub fn create(width: u32, height: u32) -> Self {
+    pub fn create(flags: WindowFlags, width: u32, height: u32) -> Self {
         let resp = send_request(RequestKind::CreateWindow(CreateWindow::new(
-            0, width, height,
+            flags, width, height,
         )))
         .expect("Failed to send Create Window Request");
 

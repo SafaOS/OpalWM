@@ -7,7 +7,7 @@ pub use opal_img as image;
 
 use libopal::{
     DequeuedEvents,
-    window::{Pixel, Window},
+    window::{Pixel, Window, WindowFlags},
 };
 
 use crate::{
@@ -42,7 +42,7 @@ impl RootContainer {
         let window_x = Self::CORNER_RADIUS / 2;
         let window_y = Self::TITLE_HEIGHT + 2;
 
-        let mut win = Window::create(real_width, real_height);
+        let mut win = Window::create(WindowFlags::empty(), real_width, real_height);
 
         win.draw_round_rect(
             0,

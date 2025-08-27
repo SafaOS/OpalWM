@@ -355,6 +355,8 @@ pub enum WindowKind {
     Overlay,
     /// Normal ordering
     Normal,
+    /// Background Window, always displayed below all other windows
+    Background,
 }
 
 pub struct Windows {
@@ -363,6 +365,8 @@ pub struct Windows {
     overlay_windows: IndexSet<WinID, FxBuildHasher>,
     /// The ordering of the windows in the Z Axis, the focused Window comes last
     normal_windows: IndexSet<WinID, FxBuildHasher>,
+    /// Windows that always come below all other windows
+    background_windows: IndexSet<WinID, FxBuildHasher>,
 
     /// A list of window IDs
     /// currently stored using a Bitmap and the max is 1024
@@ -377,6 +381,7 @@ impl Windows {
         Self {
             overlay_windows: IndexSet::with_hasher(FxBuildHasher),
             normal_windows: IndexSet::with_hasher(FxBuildHasher),
+            background_windows: IndexSet::with_hasher(FxBuildHasher),
             focused_window: None,
 
             damaged_regions: Vec::new(),
@@ -465,6 +470,14 @@ impl Windows {
                     win.draw_at(&mut fb, intersection);
                 }
             }};
+        }
+
+        for win_id in &self.background_windows {
+            let (window, _) = self
+                .windows
+                .get_mut(win_id)
+                .expect("Background window wasn't removed from the Z-Ordering when it was removed");
+            fix_window!(window);
         }
 
         for win_id in &self.normal_windows {
@@ -565,6 +578,10 @@ impl Windows {
                 self.insert_damage(&[damage]);
                 self.overlay_windows.insert(id)
             }
+            WindowKind::Background => {
+                self.insert_damage(&[damage]);
+                self.background_windows.insert(id)
+            }
         };
 
         Some(id)
@@ -595,6 +612,10 @@ impl Windows {
             WindowKind::Overlay => {
                 self.normal_windows.shift_remove(&win_id);
                 self.overlay_windows.insert(win_id);
+            }
+            WindowKind::Background => {
+                self.normal_windows.shift_remove(&win_id);
+                self.background_windows.insert(win_id);
             }
         };
 
@@ -696,6 +717,12 @@ impl Windows {
                 assert!(
                     self.overlay_windows.shift_remove(&win_id),
                     "Window has not placed in the overlay Z-ordering"
+                );
+            }
+            WindowKind::Background => {
+                assert!(
+                    self.background_windows.shift_remove(&win_id),
+                    "Window has not placed in the background Z-ordering"
                 );
             }
         }
