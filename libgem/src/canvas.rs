@@ -60,6 +60,8 @@ pub trait DrawingCanvas {
         pixel: Pixel,
         on_bg: Option<Pixel>,
     ) {
+        let width = width.min(self.width().saturating_sub(x));
+        let height = height.min(self.height().saturating_sub(y));
         for row in 0..height {
             for col in 0..width {
                 self.draw_pixel(col + x, row + y, pixel, on_bg);
@@ -265,6 +267,10 @@ impl DrawingCanvas for Window {
 
     #[inline(always)]
     fn draw_pixel(&mut self, x: u32, y: u32, pixel: Pixel, on_bg: Option<Pixel>) {
+        if x >= self.width() || y >= self.height() {
+            return;
+        }
+
         let index = (y * self.width() + x) as usize;
 
         let pixels = self.pixels_mut();
