@@ -1,3 +1,5 @@
+use std::any::Any;
+
 use libopal::{event::HeldMouseButtons, window::Pixel};
 use opal_img::display::ARGB;
 
@@ -14,7 +16,7 @@ const fn is_inside_rect(
     x >= rect_x && x < rect_x + rect_width && y >= rect_y && y < rect_y + rect_height
 }
 
-pub trait Element<RootCanvas: DrawingCanvas> {
+pub trait Element<RootCanvas: DrawingCanvas>: Any {
     /// The amount of pixels this element takes up from the x axis, not including padding.
     fn draw_width(&self) -> u32;
     /// The amount of pixels this element takes up from the y axis, not including padding.
@@ -354,7 +356,7 @@ impl<'a> Image<'a> {
     }
 }
 
-impl<'a, Canvas: DrawingCanvas> Element<Canvas> for Image<'a> {
+impl<Canvas: DrawingCanvas> Element<Canvas> for Image<'static> {
     fn draw(&mut self, canvas: &mut Canvas, x: u32, y: u32, bg_color: Pixel) -> Option<(u32, u32)> {
         let width = self.width();
         let height = self.height();
@@ -417,7 +419,7 @@ pub struct Container<Canvas: DrawingCanvas> {
     max_height: u32,
 }
 
-impl<Canvas: DrawingCanvas> Container<Canvas> {
+impl<Canvas: DrawingCanvas + 'static> Container<Canvas> {
     pub const fn new(layout: ContainerLayout, max_width: u32, max_height: u32) -> Self {
         Container {
             layout,
@@ -433,25 +435,53 @@ impl<Canvas: DrawingCanvas> Container<Canvas> {
         self.elements_changed = true;
     }
 
-    pub fn add_element(&mut self, element: Box<dyn Element<Canvas>>) {
+    #[must_use]
+    /// Adds an element to the container and returns its index.
+    pub fn add_element(&mut self, element: Box<dyn Element<Canvas>>) -> usize {
         self.elements.push(element);
         self.elements_changed = true;
+        self.elements.len() - 1
+    }
+
+    /// Attempts to get at index as the specified type.
+    pub fn get_element_as<T: Element<Canvas> + 'static>(&self, index: usize) -> Option<&T> {
+        let any: &dyn std::any::Any = &self.elements[index];
+        any.downcast_ref()
+    }
+
+    /// Attempts to get at index as the specified type muttably.
+    pub fn get_element_as_mut<T: Element<Canvas> + 'static>(
+        &mut self,
+        index: usize,
+    ) -> Option<&mut T> {
+        let any: &mut dyn std::any::Any = &mut *self.elements[index];
+        any.downcast_mut()
     }
 }
 
-impl<Canvas: DrawingCanvas> Element<Canvas> for Container<Canvas> {
+impl<Canvas: DrawingCanvas + 'static> Element<Canvas> for Container<Canvas> {
     fn draw(
         &mut self,
         canvas: &mut Canvas,
-        mut x: u32,
-        mut y: u32,
+        start_x: u32,
+        start_y: u32,
         bg_color: Pixel,
     ) -> Option<(u32, u32)> {
+        let mut ele_x = start_x;
+        let mut ele_y = start_y;
+
         let is_centered = matches!(
             self.layout,
             ContainerLayout::Vertical { align_center: true }
         );
         let mut draw_ended_at = None;
+
+        let biggest_ele_height = self
+            .elements
+            .iter()
+            .map(|ele| ele.container_height())
+            .max()
+            .unwrap_or(0);
 
         for element in self.elements.iter_mut() {
             let draw_x = if is_centered {
@@ -459,9 +489,14 @@ impl<Canvas: DrawingCanvas> Element<Canvas> for Container<Canvas> {
                 let container_width = self.max_width;
                 (container_width.saturating_sub(element_width)) / 2
             } else {
-                x
+                if (ele_x - start_x) + element.draw_width() > self.max_width {
+                    ele_x = start_x;
+                    ele_y += biggest_ele_height;
+                }
+
+                ele_x
             };
-            let draw_y = y;
+            let draw_y = ele_y;
 
             if self.elements_changed || element.needs_redraw() {
                 let results = element.draw(canvas, draw_x, draw_y, bg_color);
@@ -480,10 +515,10 @@ impl<Canvas: DrawingCanvas> Element<Canvas> for Container<Canvas> {
 
             match self.layout {
                 ContainerLayout::Horizontal => {
-                    x += element.container_width();
+                    ele_x += element.container_width();
                 }
                 ContainerLayout::Vertical { .. } => {
-                    y += element.container_height();
+                    ele_y += element.container_height();
                 }
             }
         }
@@ -523,7 +558,7 @@ impl<Canvas: DrawingCanvas> Element<Canvas> for Container<Canvas> {
         self.draw_width()
     }
 
-    fn handle_event(&mut self, event: libopal::Event, start_x: u32, mut start_y: u32) {
+    fn handle_event(&mut self, event: libopal::Event, start_x: u32, start_y: u32) {
         let mut ele_x = start_x;
         let mut ele_y = start_y;
 
@@ -532,25 +567,31 @@ impl<Canvas: DrawingCanvas> Element<Canvas> for Container<Canvas> {
             ContainerLayout::Vertical { align_center: true }
         );
 
+        let biggest_ele_height = self
+            .elements
+            .iter()
+            .map(|ele| ele.container_height())
+            .max()
+            .unwrap_or(0);
+
         for element in self.elements.iter_mut() {
             let draw_x = if is_centered {
                 let element_width = element.draw_width();
                 let container_width = self.max_width;
                 (container_width - element_width) / 2
             } else {
+                if (ele_x - start_x) + element.draw_width() > self.max_width {
+                    ele_x = start_x;
+                    ele_y += biggest_ele_height;
+                }
+
                 ele_x
             };
 
             element.handle_event(event, draw_x, ele_y);
             match self.layout {
                 ContainerLayout::Horizontal => {
-                    let next_x = ele_x + element.container_width();
-                    if next_x - start_x >= self.max_width {
-                        ele_x = start_x;
-                        ele_y += element.container_height();
-                    } else {
-                        ele_x = next_x;
-                    }
+                    ele_x += element.container_width();
                 }
                 ContainerLayout::Vertical { .. } => {
                     ele_y += element.container_height();
