@@ -267,15 +267,12 @@ impl DrawingCanvas for Window {
 
     #[inline(always)]
     fn draw_pixel(&mut self, x: u32, y: u32, pixel: Pixel, on_bg: Option<Pixel>) {
-        if x >= self.width() || y >= self.height() {
-            return;
-        }
-
         let index = (y * self.width() + x) as usize;
-
         let pixels = self.pixels_mut();
 
-        let bottom = &mut pixels[index];
+        let Some(bottom) = pixels.get_mut(index) else {
+            return;
+        };
         if let Some(on_bg) = on_bg {
             *bottom = on_bg;
         }
