@@ -12,37 +12,156 @@ use libopal::{
 
 use crate::{
     canvas::DrawingCanvas,
-    element::{Button, Container, ContainerLayout, Element, Label},
+    element::{
+        Element,
+        button::{Button, ButtonStyle},
+        container::{Container, ContainerLayout},
+        text_box::{TextBox, TextBoxStyles},
+    },
 };
-
-struct RootContainer {
-    root: Window,
-    window_x: u32,
-    window_y: u32,
-    body: Container<Window>,
-    title_bar: Container<Window>,
-    title_bar_y: u32,
-    bg_color: Pixel,
-    border_color: Pixel,
-}
 
 pub const BORDER_COLOR0: Pixel = Pixel::from_rgb(0xFD, 0xB0, 0xC0);
 pub const DARK_BG_COLOR0: Pixel = Pixel::from_rgb_with_alpha(0, 0, 0, 0x80);
 pub const DARK_BG_COLOR1: Pixel = Pixel::from_rgb_with_alpha(0, 0, 0, 0xFF);
 pub const LIGHT_BG_COLOR0: Pixel = Pixel::from_rgb_with_alpha(0xFB, 0xF1, 0xC7, 0xFF);
 
-impl RootContainer {
-    const CORNER_RADIUS: u32 = 8;
-    const TITLE_HEIGHT: u32 = Self::DEFAULT_FONT_SIZE + 10;
-    const DEFAULT_FONT_SIZE: u32 = 12;
+/// A Gem is the app state that [`App`] contains, it can be initialized into an app using [`Gem::init`].
+pub trait Gem: Sized + 'static {
+    /// From a given config turns the gem into an initialized app.
+    fn init(self, config: GemConfig) -> App<Self> {
+        config.build_app(self)
+    }
+}
 
-    fn new(width: u32, height: u32, title: &str, bg_color: Pixel, border_color: Pixel) -> Self {
+#[derive(Debug, Clone, Copy)]
+/// Configuration to build a [`Gem`] into an [`App`].
+pub struct GemConfig<'a> {
+    title: &'a str,
+    bg_color: Pixel,
+    border_color: Option<Pixel>,
+    win_flags: WindowFlags,
+    width: u32,
+    height: u32,
+    body_layout: ContainerLayout,
+}
+
+impl<'a> GemConfig<'a> {
+    /// Constructs a new [`GemBuilder`] with default values.
+    pub const fn new(title: &'a str, width: u32, height: u32) -> Self {
+        Self {
+            title: title,
+            bg_color: LIGHT_BG_COLOR0,
+            border_color: Some(BORDER_COLOR0),
+            win_flags: WindowFlags::empty(),
+            body_layout: ContainerLayout::Vertical {
+                align_center: false,
+            },
+            width,
+            height,
+        }
+    }
+
+    /// Sets the border color of the App, if color is None, no border will be drawn.
+    pub const fn with_border(mut self, color: Option<Pixel>) -> Self {
+        self.border_color = color;
+        self
+    }
+
+    /// Sets the title of the App.
+    pub const fn with_title(mut self, title: &'a str) -> Self {
+        self.title = title;
+        self
+    }
+
+    /// Sets the background color of the App.
+    pub const fn with_bg_color(mut self, color: Pixel) -> Self {
+        self.bg_color = color;
+        self
+    }
+
+    /// Sets the window flags of the App.
+    pub const fn with_win_flags(mut self, flags: WindowFlags) -> Self {
+        self.win_flags = flags;
+        self
+    }
+
+    /// Sets the width of the App.
+    pub const fn with_width(mut self, width: u32) -> Self {
+        self.width = width;
+        self
+    }
+
+    /// Sets the height of the App.
+    pub const fn with_height(mut self, height: u32) -> Self {
+        self.height = height;
+        self
+    }
+
+    /// Sets the layout of the App's body.
+    pub const fn with_layout(mut self, layout: ContainerLayout) -> Self {
+        self.body_layout = layout;
+        self
+    }
+
+    fn build_container<G: Gem>(self) -> RootContainer<G> {
+        match self.border_color {
+            Some(color) => RootContainer::new_with_border(
+                self.win_flags,
+                self.width,
+                self.height,
+                self.title,
+                self.bg_color,
+                color,
+                self.body_layout,
+            ),
+            None => RootContainer::new_without_border(
+                self.win_flags,
+                self.width,
+                self.height,
+                self.bg_color,
+                self.body_layout,
+            ),
+        }
+    }
+
+    /// Builds an App with the given Gem and configuration.
+    pub fn build_app<G: Gem>(self, gem: G) -> App<G> {
+        let container = self.build_container();
+        App::new(container, gem)
+    }
+}
+
+struct RootContainer<G: Gem> {
+    root: Window,
+    window_x: u32,
+    window_y: u32,
+    body: Container<Window, G>,
+    title_bar: Option<(Container<Window, G>, u32)>,
+    bg_color: Pixel,
+    border_color: Pixel,
+}
+
+impl<G: Gem> RootContainer<G> {
+    const CORNER_RADIUS: u32 = 8;
+    const TITLE_HEIGHT: u32 = Self::DEFAULT_TITLE_FONT_SIZE + 10;
+    const DEFAULT_TITLE_FONT_SIZE: u32 = 12;
+    const TRANSPARENT: Pixel = Pixel::from_hex_argb(0);
+
+    fn new_with_border(
+        flags: WindowFlags,
+        width: u32,
+        height: u32,
+        title: &str,
+        bg_color: Pixel,
+        border_color: Pixel,
+        layout: ContainerLayout,
+    ) -> Self {
         let real_width = width + Self::CORNER_RADIUS;
         let real_height = height + Self::TITLE_HEIGHT + 2;
         let window_x = Self::CORNER_RADIUS / 2;
         let window_y = Self::TITLE_HEIGHT + 2;
 
-        let mut win = Window::create(WindowFlags::empty(), real_width, real_height);
+        let mut win = Window::create(flags, real_width, real_height);
 
         win.draw_round_rect(
             0,
@@ -65,112 +184,131 @@ impl RootContainer {
         );
         win.redraw(0, 0, real_width, real_height);
 
-        let x_button_width = Self::DEFAULT_FONT_SIZE + 10;
+        let mut title_bar = Container::new(ContainerLayout::Horizontal, width, Self::TITLE_HEIGHT);
+        let title_bar_y = (Self::TITLE_HEIGHT - Self::DEFAULT_TITLE_FONT_SIZE) / 2;
 
-        let mut title_bar = Container::new(
-            element::ContainerLayout::Horizontal,
-            width,
-            Self::TITLE_HEIGHT,
-        );
-        let title_bar_y = (Self::TITLE_HEIGHT - Self::DEFAULT_FONT_SIZE) / 2;
-        let mut label = Label::new(
-            title,
-            Self::DEFAULT_FONT_SIZE as f32,
-            Self::DEFAULT_FONT_SIZE as f32,
-            (width - (x_button_width)) as f32,
+        let x_button_width = Self::DEFAULT_TITLE_FONT_SIZE + 10;
+
+        let x_button_styles = ButtonStyle::new(x_button_width, Self::DEFAULT_TITLE_FONT_SIZE + 2)
+            .with_font_height(Self::DEFAULT_TITLE_FONT_SIZE as f32)
+            .with_normal_color(Self::TRANSPARENT)
+            .with_hover_color(Self::TRANSPARENT)
+            .with_border_color(None)
+            .with_text_color(Pixel::BLACK)
+            .with_hover_text_color(Pixel::from_rgb(0xFF, 0xFF, 0xFF));
+
+        let mut x_button = Button::new("X", x_button_styles);
+        x_button.on_click(|_, _| std::process::exit(0));
+
+        let label_styles = TextBoxStyles::new(
+            (width - x_button_styles.real_width()) as f32,
             Self::TITLE_HEIGHT as f32,
-        );
-        label.set_color(Pixel::BLACK);
-
-        let mut x_button = Button::new(
-            x_button_width,
-            Self::DEFAULT_FONT_SIZE + 1,
-            Self::DEFAULT_FONT_SIZE as f32,
-        );
-
-        x_button.set_label("X");
-        x_button.set_background_color(Pixel::from_hex_argb(0));
-        x_button.set_border_color(Pixel::from_hex_argb(0));
-        x_button.set_hover_color(Pixel::from_hex_argb(0));
-        x_button.set_normal_text_color(Pixel::BLACK);
-        x_button.set_hover_text_color(Pixel::from_rgb(0xFF, 0, 0));
-        x_button.on_click(|_| std::process::exit(0));
-
-        title_bar.add_element(Box::new(label));
-        title_bar.add_element(Box::new(x_button));
+        )
+        .with_font_size(Self::DEFAULT_TITLE_FONT_SIZE as f32)
+        .with_text_color(Pixel::BLACK);
+        let label = TextBox::new(title, label_styles);
+        _ = title_bar.add_element(Box::new(label));
+        _ = title_bar.add_element(Box::new(x_button));
 
         Self {
             root: win,
             window_x,
             window_y,
-            body: Container::new(
-                element::ContainerLayout::Vertical {
-                    align_center: false,
-                },
-                width,
-                height,
-            ),
-            title_bar,
-            title_bar_y,
+            body: Container::new(layout, width, height),
+            title_bar: Some((title_bar, title_bar_y)),
             bg_color,
             border_color,
         }
     }
-}
-pub struct Gem {
-    root: RootContainer,
-}
 
-impl Gem {
-    pub fn init(
+    fn new_without_border(
+        win_flags: WindowFlags,
         width: u32,
         height: u32,
-        title: &str,
         bg_color: Pixel,
-        border_color: Pixel,
+        layout: ContainerLayout,
     ) -> Self {
-        libopal::init();
-        let root_container = RootContainer::new(width, height, title, bg_color, border_color);
+        let window_x = 0;
+        let window_y = 0;
+
+        let win = Window::create(win_flags, width, height);
+
         Self {
-            root: root_container,
+            title_bar: None,
+            root: win,
+            window_x,
+            window_y,
+            body: Container::new(layout, width, height),
+            bg_color,
+            border_color: Pixel::from_hex_argb(0),
+        }
+    }
+}
+
+/// A container for a [`Gem`] and its associated [`Window`].
+pub struct App<G: Gem> {
+    cont: RootContainer<G>,
+    gem: G,
+}
+
+impl<G: Gem> App<G> {
+    fn new(container: RootContainer<G>, gem: G) -> Self {
+        libopal::init();
+        Self {
+            cont: container,
+            gem,
         }
     }
 
-    pub fn set_layout(&mut self, layout: ContainerLayout) {
-        self.root.body.set_layout(layout);
+    /// Returns a mutable reference to the root container.
+    pub fn body(&mut self) -> &mut Container<Window, G> {
+        &mut self.cont.body
     }
 
-    pub fn add_element(&mut self, element: Box<dyn Element<Window>>) {
-        self.root.body.add_element(element);
+    pub fn gem_mut(&mut self) -> &mut G {
+        &mut self.gem
+    }
+
+    pub fn gem(&self) -> &G {
+        &self.gem
+    }
+
+    /// Adds an element to the root container's body
+    ///
+    /// alias for `self.body().add_element(Box::new(element))`
+    pub fn add_element<E: Element<Window, G>>(&mut self, element: E) -> usize {
+        self.body().add_element(Box::new(element))
     }
 
     pub fn redraw(&mut self) {
         let mut handle_container =
-            |container: &mut Container<Window>, start_x: u32, start_y: u32, bg_color: Pixel| {
+            |container: &mut Container<Window, G>, start_x: u32, start_y: u32, bg_color: Pixel| {
                 if container.needs_redraw() {
-                    let end = container.draw(&mut self.root.root, start_x, start_y, bg_color);
+                    let end = container.draw(&mut self.cont.root, start_x, start_y, bg_color);
 
                     if let Some((end_x, end_y)) = end {
                         let width = end_x - start_x;
                         let height = end_y - start_y;
 
-                        self.root.root.redraw(start_x, start_y, width, height);
+                        self.cont.root.redraw(start_x, start_y, width, height);
                     }
                 }
             };
 
-        handle_container(
-            &mut self.root.title_bar,
-            self.root.window_x,
-            self.root.title_bar_y,
-            self.root.border_color,
-        );
+        if let Some((ref mut title_bar, title_bar_y)) = self.cont.title_bar {
+            handle_container(
+                title_bar,
+                self.cont.window_x,
+                title_bar_y,
+                self.cont.border_color,
+            );
+        }
 
         handle_container(
-            &mut self.root.body,
-            self.root.window_x,
-            self.root.window_y,
-            self.root.bg_color,
+            &mut self.cont.body,
+            self.cont.window_x,
+            self.cont.window_y,
+            self.cont.bg_color,
         );
     }
 
@@ -178,13 +316,16 @@ impl Gem {
         let events = libopal::dequeue_events_blocking().expect("Failed to wait for an event");
 
         for event in &*events {
-            self.root
-                .title_bar
-                .handle_event(*event, self.root.window_x, self.root.title_bar_y);
+            if let Some((ref mut title_bar, title_bar_y)) = self.cont.title_bar {
+                title_bar.handle_event(&mut self.gem, *event, self.cont.window_x, title_bar_y);
+            }
 
-            self.root
-                .body
-                .handle_event(*event, self.root.window_x, self.root.window_y);
+            self.cont.body.handle_event(
+                &mut self.gem,
+                *event,
+                self.cont.window_x,
+                self.cont.window_y,
+            );
         }
         events
     }
