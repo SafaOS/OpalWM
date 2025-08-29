@@ -7,6 +7,10 @@ pub trait DrawingCanvas {
     /// Draw a pixel `pixel` at the given coordinates.
     /// by default alpha blends with the previously drawn pixel at the same location, however if `on_bg` is `Some`, it will instead alpha blend `pixel` with the `on_bg` pixel and use that as the final results.
     fn draw_pixel(&mut self, x: u32, y: u32, pixel: Pixel, on_bg: Option<Pixel>);
+    /// Draw a row of pixels `row` at the given y coordinate.
+    /// by default alpha blends with the previously drawn pixels at the same location, however if `on_bg` is `Some`, it will instead alpha blend `row` with the `on_bg` pixels and use that as the final results.
+    fn draw_row(&mut self, x: u32, y: u32, row: &[Pixel], on_bg: Option<Pixel>);
+    fn set_row(&mut self, x: u32, y: u32, width: u32, pixel: Pixel, on_bg: Option<Pixel>);
 
     fn width(&self) -> u32;
     fn height(&self) -> u32;
@@ -63,9 +67,7 @@ pub trait DrawingCanvas {
         let width = width.min(self.width().saturating_sub(x));
         let height = height.min(self.height().saturating_sub(y));
         for row in 0..height {
-            for col in 0..width {
-                self.draw_pixel(col + x, row + y, pixel, on_bg);
-            }
+            self.set_row(x, y + row, width, pixel, on_bg);
         }
     }
 
@@ -277,5 +279,43 @@ impl DrawingCanvas for Window {
             *bottom = on_bg;
         }
         *bottom = pixel.blend(bottom);
+    }
+
+    #[inline(always)]
+    fn draw_row(&mut self, x: u32, y: u32, row: &[Pixel], on_bg: Option<Pixel>) {
+        let index = (y * self.width() + x) as usize;
+        let pixels = self.pixels_mut();
+        if index >= pixels.len() {
+            return;
+        }
+
+        let len = row.len().min(pixels.len() - index);
+        if let Some(on_bg) = on_bg {
+            for i in 0..len {
+                pixels[index + i] = on_bg.blend(&row[i]);
+            }
+        } else {
+            for i in 0..len {
+                pixels[index + i] = row[i].blend(&pixels[index + i]);
+            }
+        }
+    }
+
+    #[inline(always)]
+    fn set_row(&mut self, x: u32, y: u32, width: u32, pix: Pixel, on_bg: Option<Pixel>) {
+        let index = (y * self.width() + x) as usize;
+        let pixels = self.pixels_mut();
+        if index >= pixels.len() {
+            return;
+        }
+
+        let len = (width as usize).min(pixels.len() - index);
+        if let Some(on_bg) = on_bg {
+            pixels[index..index + len].fill(pix.blend(&on_bg));
+        } else {
+            for i in 0..len {
+                pixels[index + i] = pix.blend(&pixels[index + i]);
+            }
+        }
     }
 }
