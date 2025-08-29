@@ -1,40 +1,123 @@
+use std::u32;
+
 use libopal::window::Pixel;
 
 use crate::{Gem, canvas::DrawingCanvas, element::Element};
 
+/// A grid layout for arranging elements in a grid of rows.
+#[derive(Debug, Clone, Copy)]
+pub struct GridLayout {
+    elements_per_row: u32,
+}
+
+impl GridLayout {
+    /// Constructs a new grid layout with default values.
+    pub const fn new() -> Self {
+        GridLayout {
+            elements_per_row: u32::MAX,
+        }
+    }
+
+    /// Constructs a new grid layout with a specified number of elements per row.
+    pub const fn with_elements_per_row(mut self, elements_per_row: u32) -> Self {
+        self.elements_per_row = elements_per_row;
+        self
+    }
+}
+
+/// A vertical layout for arranging elements in a vertical view.
+#[derive(Debug, Clone, Copy)]
+pub struct VerticalLayout {
+    align_center: bool,
+}
+
+impl VerticalLayout {
+    /// Constructs a new vertical layout with default values.
+    pub const fn new() -> Self {
+        VerticalLayout {
+            align_center: false,
+        }
+    }
+
+    /// Constructs a new vertical layout with a specified alignment.
+    pub const fn with_align_center(mut self, align_center: bool) -> Self {
+        self.align_center = align_center;
+        self
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 /// Describes how a container should be laid out.
 pub enum ContainerLayout {
-    Horizontal,
-    Vertical {
-        /// Aligns the elements in the center of the container.
-        align_center: bool,
-    },
+    Grid(GridLayout),
+    Vertical(VerticalLayout),
+}
+
+impl ContainerLayout {
+    /// Constructs a new container layout with default values.
+    pub const fn default() -> Self {
+        ContainerLayout::Vertical(VerticalLayout::new())
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+/// Describes the styles of a container.
+pub struct ContainerStyles {
+    element_padding: u32,
+    layout: ContainerLayout,
+}
+
+impl ContainerStyles {
+    const DEFAULT_ELEMENT_PADDING: u32 = 3;
+
+    /// Constructs a new container styles with default values.
+    pub const fn new() -> Self {
+        ContainerStyles {
+            element_padding: Self::DEFAULT_ELEMENT_PADDING,
+            layout: ContainerLayout::default(),
+        }
+    }
+
+    /// Constructs a new container styles with a specified number of pixels of padding between elements.
+    pub const fn with_element_padding(mut self, element_padding: u32) -> Self {
+        self.element_padding = element_padding;
+        self
+    }
+
+    /// Constructs a new container styles with a specified layout.
+    pub const fn with_layout(mut self, layout: ContainerLayout) -> Self {
+        self.layout = layout;
+        self
+    }
 }
 
 /// A customizable container of elements, that handles their layout and such.
 pub struct Container<Canvas: DrawingCanvas + 'static, G: Gem> {
-    layout: ContainerLayout,
     elements: Vec<Box<dyn Element<Canvas, G>>>,
     /* FIXME: Save element height and width information and set this true if these were changed */
     elements_changed: bool,
     max_width: u32,
     max_height: u32,
+    styles: ContainerStyles,
 }
 
 impl<Canvas: DrawingCanvas + 'static, G: Gem> Container<Canvas, G> {
-    pub const fn new(layout: ContainerLayout, max_width: u32, max_height: u32) -> Self {
+    pub const fn new(styles: ContainerStyles, max_width: u32, max_height: u32) -> Self {
         Container {
-            layout,
             elements: Vec::new(),
             elements_changed: false,
             max_width,
             max_height,
+            styles,
         }
     }
 
-    pub const fn set_layout(&mut self, layout: ContainerLayout) {
-        self.layout = layout;
+    pub const fn styles(&self) -> ContainerStyles {
+        self.styles
+    }
+
+    pub const fn set_styles(&mut self, styles: ContainerStyles) {
+        self.styles = styles;
         self.elements_changed = true;
     }
 
@@ -57,6 +140,68 @@ impl<Canvas: DrawingCanvas + 'static, G: Gem> Container<Canvas, G> {
         let any: &mut dyn std::any::Any = &mut *self.elements[index];
         any.downcast_mut()
     }
+
+    fn layout_elements<F: FnMut(&mut dyn Element<Canvas, G>, u32, u32)>(
+        &mut self,
+        start_x: u32,
+        start_y: u32,
+        mut on_element: F,
+    ) {
+        let mut curr_x = start_x;
+        let mut curr_y = start_y;
+
+        match self.styles.layout {
+            ContainerLayout::Grid(g) => {
+                let biggest_ele_height = self
+                    .elements
+                    .iter()
+                    .map(|ele| ele.container_height())
+                    .max()
+                    .unwrap_or(0);
+
+                let max_columns = g.elements_per_row;
+
+                let mut curr_col = 0;
+                for element in self.elements.iter_mut() {
+                    let ele_width = element.container_width();
+
+                    if curr_col + 1 >= max_columns
+                        || (curr_x - start_x) + ele_width > self.max_width
+                    {
+                        curr_col = 0;
+                        curr_x = start_x;
+                        curr_y += biggest_ele_height + self.styles.element_padding;
+                    } else {
+                        curr_col += 1;
+                    }
+
+                    on_element(&mut **element, curr_x, curr_y);
+                    curr_x += ele_width + self.styles.element_padding;
+                }
+            }
+            ContainerLayout::Vertical(v) => {
+                let is_centered = v.align_center;
+
+                for element in self.elements.iter_mut() {
+                    let element_height = element.container_height();
+
+                    let (element_x, element_y) = if is_centered {
+                        let element_width = element.container_width();
+
+                        let element_x = curr_x + (self.max_width.saturating_sub(element_width)) / 2;
+                        let element_y = curr_y;
+
+                        (element_x, element_y)
+                    } else {
+                        (curr_x, curr_y)
+                    };
+
+                    on_element(&mut **element, element_x, element_y);
+                    curr_y += element_height + self.styles.element_padding;
+                }
+            }
+        }
+    }
 }
 
 impl<Canvas: DrawingCanvas + 'static, G: Gem> Element<Canvas, G> for Container<Canvas, G> {
@@ -67,39 +212,12 @@ impl<Canvas: DrawingCanvas + 'static, G: Gem> Element<Canvas, G> for Container<C
         start_y: u32,
         bg_color: Pixel,
     ) -> Option<(u32, u32)> {
-        let mut ele_x = start_x;
-        let mut ele_y = start_y;
-
-        let is_centered = matches!(
-            self.layout,
-            ContainerLayout::Vertical { align_center: true }
-        );
         let mut draw_ended_at = None;
 
-        let biggest_ele_height = self
-            .elements
-            .iter()
-            .map(|ele| ele.container_height())
-            .max()
-            .unwrap_or(0);
-
-        for element in self.elements.iter_mut() {
-            let draw_x = if is_centered {
-                let element_width = element.draw_width();
-                let container_width = self.max_width;
-                (container_width.saturating_sub(element_width)) / 2
-            } else {
-                if (ele_x - start_x) + element.draw_width() > self.max_width {
-                    ele_x = start_x;
-                    ele_y += biggest_ele_height;
-                }
-
-                ele_x
-            };
-            let draw_y = ele_y;
-
-            if self.elements_changed || element.needs_redraw() {
-                let results = element.draw(canvas, draw_x, draw_y, bg_color);
+        let elements_changed = self.elements_changed;
+        self.layout_elements(start_x, start_y, |ele, draw_x, draw_y| {
+            if elements_changed || ele.needs_redraw() {
+                let results = ele.draw(canvas, draw_x, draw_y, bg_color);
 
                 match (results, draw_ended_at) {
                     (None, None) => (),
@@ -112,16 +230,7 @@ impl<Canvas: DrawingCanvas + 'static, G: Gem> Element<Canvas, G> for Container<C
                     (None, Some(_)) => {}
                 }
             }
-
-            match self.layout {
-                ContainerLayout::Horizontal => {
-                    ele_x += element.container_width();
-                }
-                ContainerLayout::Vertical { .. } => {
-                    ele_y += element.container_height();
-                }
-            }
-        }
+        });
 
         self.elements_changed = false;
         draw_ended_at
@@ -159,44 +268,8 @@ impl<Canvas: DrawingCanvas + 'static, G: Gem> Element<Canvas, G> for Container<C
     }
 
     fn handle_event(&mut self, gem: &mut G, event: libopal::Event, start_x: u32, start_y: u32) {
-        let mut ele_x = start_x;
-        let mut ele_y = start_y;
-
-        let is_centered = matches!(
-            self.layout,
-            ContainerLayout::Vertical { align_center: true }
-        );
-
-        let biggest_ele_height = self
-            .elements
-            .iter()
-            .map(|ele| ele.container_height())
-            .max()
-            .unwrap_or(0);
-
-        for element in self.elements.iter_mut() {
-            let draw_x = if is_centered {
-                let element_width = element.draw_width();
-                let container_width = self.max_width;
-                (container_width - element_width) / 2
-            } else {
-                if (ele_x - start_x) + element.draw_width() > self.max_width {
-                    ele_x = start_x;
-                    ele_y += biggest_ele_height;
-                }
-
-                ele_x
-            };
-
-            element.handle_event(gem, event, draw_x, ele_y);
-            match self.layout {
-                ContainerLayout::Horizontal => {
-                    ele_x += element.container_width();
-                }
-                ContainerLayout::Vertical { .. } => {
-                    ele_y += element.container_height();
-                }
-            }
-        }
+        self.layout_elements(start_x, start_y, |ele, ele_x, ele_y| {
+            ele.handle_event(gem, event, ele_x, ele_y);
+        });
     }
 }

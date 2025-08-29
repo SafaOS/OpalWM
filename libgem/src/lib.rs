@@ -15,7 +15,7 @@ use crate::{
     element::{
         Element,
         button::{Button, ButtonStyle},
-        container::{Container, ContainerLayout},
+        container::{Container, ContainerLayout, ContainerStyles, GridLayout},
         text_box::{TextBox, TextBoxStyles},
     },
 };
@@ -42,7 +42,7 @@ pub struct GemConfig<'a> {
     win_flags: WindowFlags,
     width: u32,
     height: u32,
-    body_layout: ContainerLayout,
+    body_styles: ContainerStyles,
 }
 
 impl<'a> GemConfig<'a> {
@@ -53,9 +53,7 @@ impl<'a> GemConfig<'a> {
             bg_color: LIGHT_BG_COLOR0,
             border_color: Some(BORDER_COLOR0),
             win_flags: WindowFlags::empty(),
-            body_layout: ContainerLayout::Vertical {
-                align_center: false,
-            },
+            body_styles: ContainerStyles::new(),
             width,
             height,
         }
@@ -97,9 +95,9 @@ impl<'a> GemConfig<'a> {
         self
     }
 
-    /// Sets the layout of the App's body.
-    pub const fn with_layout(mut self, layout: ContainerLayout) -> Self {
-        self.body_layout = layout;
+    /// Sets the styles of the App's body.
+    pub const fn with_body_styles(mut self, styles: ContainerStyles) -> Self {
+        self.body_styles = styles;
         self
     }
 
@@ -112,14 +110,14 @@ impl<'a> GemConfig<'a> {
                 self.title,
                 self.bg_color,
                 color,
-                self.body_layout,
+                self.body_styles,
             ),
             None => RootContainer::new_without_border(
                 self.win_flags,
                 self.width,
                 self.height,
                 self.bg_color,
-                self.body_layout,
+                self.body_styles,
             ),
         }
     }
@@ -154,7 +152,7 @@ impl<G: Gem> RootContainer<G> {
         title: &str,
         bg_color: Pixel,
         border_color: Pixel,
-        layout: ContainerLayout,
+        styles: ContainerStyles,
     ) -> Self {
         let real_width = width + Self::CORNER_RADIUS;
         let real_height = height + Self::TITLE_HEIGHT + 2;
@@ -184,7 +182,13 @@ impl<G: Gem> RootContainer<G> {
         );
         win.redraw(0, 0, real_width, real_height);
 
-        let mut title_bar = Container::new(ContainerLayout::Horizontal, width, Self::TITLE_HEIGHT);
+        let mut title_bar = Container::new(
+            ContainerStyles::new()
+                .with_layout(ContainerLayout::Grid(GridLayout::new()))
+                .with_element_padding(0),
+            width,
+            Self::TITLE_HEIGHT,
+        );
         let title_bar_y = (Self::TITLE_HEIGHT - Self::DEFAULT_TITLE_FONT_SIZE) / 2;
 
         let x_button_width = Self::DEFAULT_TITLE_FONT_SIZE + 10;
@@ -214,7 +218,7 @@ impl<G: Gem> RootContainer<G> {
             root: win,
             window_x,
             window_y,
-            body: Container::new(layout, width, height),
+            body: Container::new(styles, width, height),
             title_bar: Some((title_bar, title_bar_y)),
             bg_color,
             border_color,
@@ -226,7 +230,7 @@ impl<G: Gem> RootContainer<G> {
         width: u32,
         height: u32,
         bg_color: Pixel,
-        layout: ContainerLayout,
+        styles: ContainerStyles,
     ) -> Self {
         let window_x = 0;
         let window_y = 0;
@@ -238,7 +242,7 @@ impl<G: Gem> RootContainer<G> {
             root: win,
             window_x,
             window_y,
-            body: Container::new(layout, width, height),
+            body: Container::new(styles, width, height),
             bg_color,
             border_color: Pixel::from_hex_argb(0),
         }
