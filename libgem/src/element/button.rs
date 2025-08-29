@@ -121,7 +121,7 @@ impl ButtonStyle {
 
 /// A button element that can be clicked.
 pub struct Button<G: Gem> {
-    on_click: Option<fn(&mut Self, &mut G)>,
+    on_click: Option<Box<dyn Fn(&mut Self, &mut G)>>,
     text: Text,
     mouse_hovering: bool,
     was_pressed: bool,
@@ -153,6 +153,10 @@ impl<G: Gem> Button<G> {
         }
     }
 
+    pub fn on_click<F: Fn(&mut Self, &mut G) + 'static>(&mut self, on_click: F) {
+        self.on_click = Some(Box::new(on_click));
+    }
+
     pub fn style(&self) -> ButtonStyle {
         self.style
     }
@@ -160,10 +164,6 @@ impl<G: Gem> Button<G> {
     pub fn set_style(&mut self, style: ButtonStyle) {
         self.style = style;
         self.need_redraw = true;
-    }
-
-    pub fn on_click(&mut self, on_click: fn(&mut Self, &mut G)) {
-        self.on_click = Some(on_click);
     }
 
     pub fn set_label(&mut self, label: &str) {
@@ -273,8 +273,11 @@ impl<RootCanvas: DrawingCanvas, G: Gem> Element<RootCanvas, G> for Button<G> {
         if is_held && self.mouse_hovering {
             // FIXME: perhaps only detect on button release, but the WM currently cannot send release events for some odd reason
             if is_held {
-                if let Some(f) = self.on_click {
+                if let Some(f) = self.on_click.take() {
                     f(self, gem);
+                    if self.on_click.is_none() {
+                        self.on_click = Some(f);
+                    }
                 }
             }
         }
