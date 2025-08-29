@@ -206,7 +206,7 @@ impl<G: Gem> RootContainer<G> {
 
         let label_styles = TextBoxStyles::new(
             (width - x_button_styles.real_width()) as f32,
-            Self::TITLE_HEIGHT as f32,
+            (Self::TITLE_HEIGHT - title_bar_y) as f32,
         )
         .with_font_size(Self::DEFAULT_TITLE_FONT_SIZE as f32)
         .with_text_color(Pixel::BLACK);
