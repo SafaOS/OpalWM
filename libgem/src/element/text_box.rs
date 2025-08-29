@@ -139,6 +139,14 @@ impl<Canvas: DrawingCanvas, G: Gem> Element<Canvas, G> for TextBox {
         let max_y = y + self.styles.max_height as u32;
 
         // TODO: Implement border drawing
+        canvas.draw_rect(
+            x,
+            y,
+            self.styles.max_width as u32,
+            self.styles.max_height as u32,
+            Pixel::from_hex_argb(0x0),
+            Some(bg_color),
+        );
         canvas.draw_text(x, y, max_x, max_y, &mut self.text, Some(bg_color));
         self.needs_redraw = false;
         Some((max_x, max_y))
