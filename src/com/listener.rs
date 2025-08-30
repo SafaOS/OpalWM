@@ -61,9 +61,14 @@ fn handle_connect(connection: UnixSockConnection) {
                     let width = request.width() as usize;
                     let flags = request.flags();
 
-                    let window =
-                        Window::new_filled_with(0, 0, width, height, Pixel::from_rgb(0, 0, 0))
-                            .with_com_pipe(pipe.clone());
+                    let window = Window::new_filled_with(
+                        0,
+                        0,
+                        width,
+                        height,
+                        Pixel::from_rgb_with_alpha(0, 0, 0, 0),
+                    )
+                    .with_com_pipe(pipe.clone());
 
                     let shm_key = *window.shm_key();
 

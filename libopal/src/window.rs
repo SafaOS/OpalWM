@@ -115,11 +115,6 @@ impl Window {
             .pixels_mut()
             .fill(Pixel::from_rgb_with_alpha(0, 0, 0, 0x0));
 
-        let results = send_request(RequestKind::DamageWindow(DamageWindow::new(
-            id, 0, 0, width, height,
-        )))
-        .expect("Failed to send clear window request");
-        assert!(matches!(results, Response::Ok(_)), "Failed to clear window");
         window
     }
 }
