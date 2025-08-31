@@ -165,6 +165,7 @@ version = "0.1.0"
 dependencies = [
  "bincode",
  "bitflags",
+ "wide",
 ]
 
 [[package]]
@@ -281,6 +282,15 @@ version = "0.4.3"
 source = "git+https://github.com/SafaOS/safa-api#072ab33eeb7ec56deeab9824c3f714cb82c8b305"
 dependencies = [
  "safa-abi",
+]
+
+[[package]]
+name = "safe_arch"
+version = "0.7.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "96b02de82ddbe1b636e6170c21be622223aea188ef2e139be0a5b219ec215323"
+dependencies = [
+ "bytemuck",
 ]
 
 [[package]]
@@ -483,6 +493,16 @@ name = "virtue"
 version = "0.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "051eb1abcf10076295e815102942cc58f9d5e3b4560e46e53c21e8ff6f3af7b1"
+
+[[package]]
+name = "wide"
+version = "0.7.33"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0ce5da8ecb62bcd8ec8b7ea19f69a51275e91299be594ea5cc6ef7819e16cd03"
+dependencies = [
+ "bytemuck",
+ "safe_arch",
+]
 
 [[package]]
 name = "yazi"

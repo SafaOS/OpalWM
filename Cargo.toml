@@ -16,3 +16,7 @@ zerocopy = "0.8.26"
 zerocopy-derive = "0.8.26"
 rustc-hash = "2.1.1"
 indexmap = "2.10.0"
+
+[profile.release]
+debug = 2
+lto = true
