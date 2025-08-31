@@ -92,6 +92,42 @@ impl Pixel {
         Self::from_rgb(red, green, blue)
     }
 
+    #[inline]
+    pub fn blend_4(top: &[Pixel; 4], bottom: &mut [Pixel; 4]) {
+        const ALPHAS_SWIZZLE: wide::u8x16 =
+            wide::u8x16::new([3, 3, 3, 3, 7, 7, 7, 7, 11, 11, 11, 11, 15, 15, 15, 15]);
+
+        let u8_top_bytes: &[u8; 16] = unsafe { core::mem::transmute(top) };
+        let u8_bottom_bytes: &mut [u8; 16] = unsafe { core::mem::transmute(bottom) };
+
+        let u8_top_cells = wide::u8x16::new(*u8_top_bytes);
+        let u8_bottom_cells = wide::u8x16::new(*u8_bottom_bytes);
+
+        let alphas = u8_top_cells.swizzle_relaxed(ALPHAS_SWIZZLE) ^ wide::u8x16::splat(0xFF);
+
+        // 11 11 11 11 15 15 15 15
+        let alphas_high = wide::u16x8::from_u8x16_high(alphas);
+        // 3 3 3 3 7 7 7 7
+        let alphas_low = wide::u16x8::from_u8x16_low(alphas);
+
+        // 11 11 11 11 15 15 15 15
+        let bott_high: wide::u16x8 =
+            ((wide::u16x8::from_u8x16_high(u8_bottom_cells) * alphas_high) + 0x80)
+                .mul_keep_high(0x101.into());
+
+        // 3 3 3 3 7 7 7 7
+        let bott_low: wide::u16x8 = ((wide::u16x8::from_u8x16_low(u8_bottom_cells) * alphas_low)
+            + 0x80)
+            .mul_keep_high(0x101.into());
+
+        let bott = wide::u8x16::narrow_i16x8(unsafe { core::mem::transmute(bott_low) }, unsafe {
+            core::mem::transmute(bott_high)
+        });
+
+        let res: wide::u8x16 = u8_top_cells + bott;
+
+        *u8_bottom_bytes = res.to_array();
+    }
     /// Alpha blends a pixel with another
     pub const fn blend(&self, bottom: &Self) -> Self {
         if self.alpha == 0 {
@@ -115,7 +151,7 @@ impl Pixel {
         let bottom_alpha = bottom.alpha as u16;
 
         const fn calc_color(top: u16, bottom: u16, alpha: u16) -> u16 {
-            top + (bottom * (255 - alpha) / 255)
+            top + (bottom * (alpha ^ 0xFF) / 255)
         }
 
         let red = calc_color(top_red, bottom_red, top_alpha);

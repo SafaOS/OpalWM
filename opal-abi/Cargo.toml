@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 bincode = "2.0.1"
 bitflags = "2.9.2"
+wide = "0.7.33"
