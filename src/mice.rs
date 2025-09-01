@@ -1,3 +1,10 @@
+//! Mouse and cursor handling
+//!
+//! This module provides functionality for handling mouse input.
+//! It includes functions for reading mouse events from the mouse device,
+//! handling the mouse cursor, and dispatching mouse events to the
+//! active window.
+
 use std::{
     fs::File,
     io::{BufReader, Read},
@@ -64,7 +71,9 @@ impl MiceCursor {
 
     /// Handles one mouse event if available
     pub fn handle_event(&mut self) {
-        let mut event_bytes = [0u8; size_of::<MiceEvent>()];
+        const EVENTS_COUNT: usize = 1024;
+
+        let mut event_bytes = [0u8; size_of::<MiceEvent>() * EVENTS_COUNT];
         let len = self
             .reader
             .read(&mut event_bytes)
@@ -74,111 +83,120 @@ impl MiceCursor {
             return;
         }
 
-        assert_eq!(len, size_of::<MiceEvent>());
+        assert!(len.is_multiple_of(size_of::<MiceEvent>()));
 
-        let event: MiceEvent = unsafe { core::mem::transmute(event_bytes) };
+        let events: [MiceEvent; EVENTS_COUNT] = unsafe { core::mem::transmute(event_bytes) };
+        let events_count = len / size_of::<MiceEvent>();
+        let events = &events[..events_count];
 
-        match event.kind {
-            MouseEventKind::Change => {
-                let old_win_id = self.current_window;
-                let left_button_was_pressed = self
-                    .last_mouse_event
-                    .buttons_status
-                    .contains(MiceBtnStatus::BTN_LEFT);
+        for event in events {
+            match event.kind {
+                MouseEventKind::Change => {
+                    let old_win_id = self.current_window;
+                    let left_button_was_pressed = self
+                        .last_mouse_event
+                        .buttons_status
+                        .contains(MiceBtnStatus::BTN_LEFT);
 
-                let x_change = (event.x_rel_change) as i32;
-                let y_change = (-event.y_rel_change) as i32;
+                    let x_change = (event.x_rel_change) as i32;
+                    let y_change = (-event.y_rel_change) as i32;
 
-                let mut windows = WINDOWS.lock().expect("failed to get lock on windows");
+                    let mut windows = WINDOWS.lock().expect("failed to get lock on windows");
 
-                if !(x_change == 0 && y_change == 0) {
-                    let (new_x, new_y) = windows.add_cord(self.win_id, x_change, y_change).unwrap();
-                    self.x = new_x;
-                    self.y = new_y;
-                }
+                    if !(x_change == 0 && y_change == 0) {
+                        let (new_x, new_y) =
+                            windows.add_cord(self.win_id, x_change, y_change).unwrap();
+                        self.x = new_x;
+                        self.y = new_y;
+                    }
 
-                let window_in_contact =
-                    windows.window_in_contact(self.x, self.y, self.width, self.height);
+                    let window_in_contact =
+                        windows.window_in_contact(self.x, self.y, self.width, self.height);
 
-                let left_button_is_pressed = event.buttons_status.contains(MiceBtnStatus::BTN_LEFT);
-                if left_button_was_pressed
-                    && let Some(focused_id) = windows.focused_window()
-                    && left_button_is_pressed
-                {
-                    windows.add_cord(focused_id, x_change, y_change);
-                }
+                    let left_button_is_pressed =
+                        event.buttons_status.contains(MiceBtnStatus::BTN_LEFT);
+                    if left_button_was_pressed
+                        && let Some(focused_id) = windows.focused_window()
+                        && left_button_is_pressed
+                    {
+                        windows.add_cord(focused_id, x_change, y_change);
+                    }
 
-                match window_in_contact {
-                    Some((curr_id, contact_point)) => {
-                        let mut mouse_enter = false;
-                        let x = contact_point.x() as u32;
-                        let y = contact_point.y() as u32;
+                    match window_in_contact {
+                        Some((curr_id, contact_point)) => {
+                            let mut mouse_enter = false;
+                            let x = contact_point.x() as u32;
+                            let y = contact_point.y() as u32;
 
-                        if old_win_id.is_none_or(|old_id| old_id != curr_id) {
-                            windows
-                                .send_event(curr_id, Event::MouseEnter(MouseEnterEvent::new(x, y)))
-                                .expect("Window removed before we could send an event to it");
-                            mouse_enter = true;
-                        }
-
-                        if let Some(old_id) = old_win_id
-                            && mouse_enter
-                        {
-                            /* It is ok the old window might be gone by now */
-                            _ = windows
-                                .send_event(old_id, Event::MouseLeave(MouseLeaveEvent::new()));
-                        }
-
-                        // FIXME: for some reason mouse release events are not being sent by the kernel driver.
-                        if !mouse_enter {
-                            let mut held_buttons = HeldMouseButtons::empty();
-
-                            if left_button_is_pressed {
-                                held_buttons.insert(HeldMouseButtons::LEFT);
+                            if old_win_id.is_none_or(|old_id| old_id != curr_id) {
+                                windows
+                                    .send_event(
+                                        curr_id,
+                                        Event::MouseEnter(MouseEnterEvent::new(x, y)),
+                                    )
+                                    .expect("Window removed before we could send an event to it");
+                                mouse_enter = true;
                             }
 
-                            if event.buttons_status.contains(MiceBtnStatus::BTN_MID) {
-                                held_buttons.insert(HeldMouseButtons::MIDDLE);
+                            if let Some(old_id) = old_win_id
+                                && mouse_enter
+                            {
+                                /* It is ok the old window might be gone by now */
+                                _ = windows
+                                    .send_event(old_id, Event::MouseLeave(MouseLeaveEvent::new()));
                             }
 
-                            if event.buttons_status.contains(MiceBtnStatus::BTN_RIGHT) {
-                                held_buttons.insert(HeldMouseButtons::RIGHT);
+                            // FIXME: for some reason mouse release events are not being sent by the kernel driver.
+                            if !mouse_enter {
+                                let mut held_buttons = HeldMouseButtons::empty();
+
+                                if left_button_is_pressed {
+                                    held_buttons.insert(HeldMouseButtons::LEFT);
+                                }
+
+                                if event.buttons_status.contains(MiceBtnStatus::BTN_MID) {
+                                    held_buttons.insert(HeldMouseButtons::MIDDLE);
+                                }
+
+                                if event.buttons_status.contains(MiceBtnStatus::BTN_RIGHT) {
+                                    held_buttons.insert(HeldMouseButtons::RIGHT);
+                                }
+
+                                let buttons_changed =
+                                    self.last_mouse_event.buttons_status != event.buttons_status;
+
+                                let change_event =
+                                    MouseChangeEvent::new(buttons_changed, held_buttons, x, y);
+                                windows.send_event(curr_id, Event::MouseChange(change_event)).expect("Current Window was removed before we could handle a mouse event");
                             }
 
-                            let buttons_changed =
-                                self.last_mouse_event.buttons_status != event.buttons_status;
-
-                            let change_event =
-                                MouseChangeEvent::new(buttons_changed, held_buttons, x, y);
-                            windows.send_event(curr_id, Event::MouseChange(change_event)).expect("Current Window was removed before we could handle a mouse event");
+                            if windows
+                                .focused_window()
+                                .is_none_or(|focus_id| focus_id != curr_id)
+                                && left_button_is_pressed
+                                && !left_button_was_pressed
+                            {
+                                windows.set_focused(curr_id);
+                            }
                         }
+                        None => {
+                            if let Some(old_id) = old_win_id {
+                                /* It is ok the old window might be gone by now */
+                                _ = windows
+                                    .send_event(old_id, Event::MouseLeave(MouseLeaveEvent::new()));
+                            }
 
-                        if windows
-                            .focused_window()
-                            .is_none_or(|focus_id| focus_id != curr_id)
-                            && left_button_is_pressed
-                            && !left_button_was_pressed
-                        {
-                            windows.set_focused(curr_id);
+                            if left_button_is_pressed && !left_button_was_pressed {
+                                windows.unfocus_current();
+                            }
                         }
                     }
-                    None => {
-                        if let Some(old_id) = old_win_id {
-                            /* It is ok the old window might be gone by now */
-                            _ = windows
-                                .send_event(old_id, Event::MouseLeave(MouseLeaveEvent::new()));
-                        }
 
-                        if left_button_is_pressed && !left_button_was_pressed {
-                            windows.unfocus_current();
-                        }
-                    }
+                    self.last_mouse_event = event.clone();
+                    self.current_window = window_in_contact.map(|(id, _)| id);
                 }
-
-                self.last_mouse_event = event;
-                self.current_window = window_in_contact.map(|(id, _)| id);
+                MouseEventKind::Null => unreachable!(),
             }
-            MouseEventKind::Null => unreachable!(),
         }
     }
 }
