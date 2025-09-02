@@ -130,6 +130,154 @@ impl MouseChangeEvent {
     }
 }
 
+/// Keeps in sync with the `KeyCode` enum in the `safa-abi` crate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Encode, Decode)]
+#[repr(u32)]
+pub enum KeyCode {
+    Null = 0,
+    F1,
+    F2,
+    F3,
+    F4,
+    F5,
+    F6,
+    F7,
+    F8,
+    F9,
+    F10,
+    F11,
+    F12,
+    PrintScr,
+
+    Esc,
+    Key1,
+    Key2,
+    Key3,
+    Key4,
+    Key5,
+    Key6,
+    Key7,
+    Key8,
+    Key9,
+    Key0,
+    Minus,
+    Equals,
+    Backspace,
+
+    KeyQ,
+    KeyW,
+    KeyE,
+    KeyR,
+    KeyT,
+    KeyY,
+    KeyU,
+    KeyI,
+    KeyO,
+    KeyP,
+    LeftBrace,
+    RightBrace,
+    BackSlash,
+
+    KeyA,
+    KeyS,
+    KeyD,
+    KeyF,
+    KeyG,
+    KeyH,
+    KeyJ,
+    KeyK,
+    KeyL,
+    Semicolon,
+    DoubleQuote,
+    Return,
+
+    KeyZ,
+    KeyX,
+    KeyC,
+    KeyV,
+    KeyB,
+    KeyN,
+    KeyM,
+    BackQuote,
+    Comma,
+    Dot,
+    Slash,
+
+    Tab,
+    CapsLock,
+    Ctrl,
+    Shift,
+    Alt,
+    Super,
+    Space,
+    Up,
+    Down,
+    Left,
+    Right,
+
+    PageUp,
+    PageDown,
+    Insert,
+    Delete,
+    Home,
+    End,
+
+    // used to figure out Max of KeyCode
+    LastKey,
+}
+
+bitflags! {
+    /// Represents the state of modifier keys.
+    /// the current modifier keys are:
+    /// - Super
+    /// - Ctrl
+    /// - Alt
+    /// - Shift
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct KeyModifiers: u16 {
+        const CTRL = 1 << 0;
+        const ALT = 1 << 1;
+        const SHIFT = 1 << 2;
+        const SUPER = 1 << 3;
+    }
+}
+
+impl Encode for KeyModifiers {
+    fn encode<E: bincode::enc::Encoder>(
+        &self,
+        encoder: &mut E,
+    ) -> Result<(), bincode::error::EncodeError> {
+        u16::encode(&self.bits(), encoder)
+    }
+}
+
+impl<Context> Decode<Context> for KeyModifiers {
+    fn decode<D: bincode::de::Decoder<Context = Context>>(
+        decoder: &mut D,
+    ) -> Result<Self, bincode::error::DecodeError> {
+        u16::decode(decoder).map(|bits| Self::from_bits_retain(bits))
+    }
+}
+
+bincode::impl_borrow_decode!(KeyModifiers);
+
+/// Represents the kind of key event.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+pub enum KeyEventKind {
+    Null = 0,
+    Press,
+    Release,
+}
+
+/// Represents a key event that occurred on an active window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+#[repr(C)]
+pub struct KeyEvent {
+    pub code: KeyCode,
+    pub modifiers: KeyModifiers,
+    pub kind: KeyEventKind,
+}
+
 /// Represents an event that occurred on a window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 #[repr(u32)]
@@ -139,4 +287,5 @@ pub enum Event {
     MouseEnter(MouseEnterEvent),
     WindowFocused,
     WindowUnfocused,
+    Key(KeyEvent),
 }
