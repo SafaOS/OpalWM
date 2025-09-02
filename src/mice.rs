@@ -14,10 +14,11 @@ use opal_abi::com::response::event::{
     Event, HeldMouseButtons, MouseChangeEvent, MouseEnterEvent, MouseLeaveEvent,
 };
 use opal_img::bmp::BMPImage;
-use safa_api::abi::input::{MiceBtnStatus, MiceEvent, MouseEventKind};
+use safa_api::abi::input::{KeyCode, MiceBtnStatus, MiceEvent, MouseEventKind};
 
 use crate::{
     dlog,
+    kbd::PressedKeys,
     window::{WINDOWS, WinID, Window, WindowKind},
 };
 
@@ -70,7 +71,7 @@ impl MiceCursor {
     }
 
     /// Handles one mouse event if available
-    pub fn handle_event(&mut self) {
+    pub fn handle_event(&mut self, pressed_keys: PressedKeys) {
         const EVENTS_COUNT: usize = 1024;
 
         let mut event_bytes = [0u8; size_of::<MiceEvent>() * EVENTS_COUNT];
@@ -89,6 +90,7 @@ impl MiceCursor {
         let events_count = len / size_of::<MiceEvent>();
         let events = &events[..events_count];
 
+        let ctrl_pressed = pressed_keys.contains(KeyCode::Ctrl);
         for event in events {
             match event.kind {
                 MouseEventKind::Change => {
@@ -113,13 +115,17 @@ impl MiceCursor {
                     let window_in_contact =
                         windows.window_in_contact(self.x, self.y, self.width, self.height);
 
+                    let mut receive_events = true;
+
                     let left_button_is_pressed =
                         event.buttons_status.contains(MiceBtnStatus::BTN_LEFT);
                     if left_button_was_pressed
                         && let Some(focused_id) = windows.focused_window()
                         && left_button_is_pressed
+                        && ctrl_pressed
                     {
                         windows.add_cord(focused_id, x_change, y_change);
+                        receive_events = false;
                     }
 
                     match window_in_contact {
@@ -128,7 +134,7 @@ impl MiceCursor {
                             let x = contact_point.x() as u32;
                             let y = contact_point.y() as u32;
 
-                            if old_win_id.is_none_or(|old_id| old_id != curr_id) {
+                            if receive_events && old_win_id.is_none_or(|old_id| old_id != curr_id) {
                                 windows
                                     .send_event(
                                         curr_id,
@@ -138,7 +144,8 @@ impl MiceCursor {
                                 mouse_enter = true;
                             }
 
-                            if let Some(old_id) = old_win_id
+                            if receive_events
+                                && let Some(old_id) = old_win_id
                                 && mouse_enter
                             {
                                 /* It is ok the old window might be gone by now */
@@ -147,7 +154,7 @@ impl MiceCursor {
                             }
 
                             // FIXME: for some reason mouse release events are not being sent by the kernel driver.
-                            if !mouse_enter {
+                            if receive_events && !mouse_enter {
                                 let mut held_buttons = HeldMouseButtons::empty();
 
                                 if left_button_is_pressed {
