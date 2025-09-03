@@ -3,6 +3,7 @@ use libopal::window::Window;
 
 use crate::text::Text;
 
+/// An area to draw pixels in.
 pub trait DrawingCanvas {
     /// Draw a pixel `pixel` at the given coordinates.
     /// by default alpha blends with the previously drawn pixel at the same location, however if `on_bg` is `Some`, it will instead alpha blend `pixel` with the `on_bg` pixel and use that as the final results.

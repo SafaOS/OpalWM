@@ -1,6 +1,7 @@
-mod canvas;
+pub mod canvas;
 pub mod element;
-mod text;
+/// A basic wrapper around cosmic_text, you can use custom elements with cosmic_text for more advanced stuff.
+pub mod text;
 
 pub use libopal;
 pub use opal_img as image;
@@ -19,6 +20,8 @@ use crate::{
         text_box::{TextBox, TextBoxStyles},
     },
 };
+
+pub use ::cosmic_text;
 
 pub const BORDER_COLOR0: Pixel = Pixel::from_rgb(0xFD, 0xB0, 0xC0);
 pub const DARK_BG_COLOR0: Pixel = Pixel::from_rgb_with_alpha(0, 0, 0, 0x80);

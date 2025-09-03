@@ -7,3 +7,7 @@ edition = "2024"
 cosmic-text = { version = "0.14.2", default-features = false, features = ["std","swash"] }
 libopal = { path = "../libopal" }
 opal-img = { path = "../opal-img" }
+
+[features]
+cosmic-text-syntect = ["cosmic-text/syntect"]
+cosmic-text-vim = ["cosmic-text/vi"]

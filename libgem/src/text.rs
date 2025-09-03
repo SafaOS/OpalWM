@@ -4,8 +4,11 @@ use cosmic_text::{Attrs, Buffer, FontSystem, Metrics, SwashCache};
 use libopal::window::Pixel;
 
 const DEFAULT_FONT_DATA: &[u8] = include_bytes!("../../assets/DejaVuSansMono.ttf");
-static SWASH_CACHE: LazyLock<Mutex<SwashCache>> = LazyLock::new(|| Mutex::new(SwashCache::new()));
-static FONT_SYSTEM: LazyLock<Mutex<FontSystem>> = LazyLock::new(|| {
+/// The global swash cache for text rendering.
+pub static SWASH_CACHE: LazyLock<Mutex<SwashCache>> =
+    LazyLock::new(|| Mutex::new(SwashCache::new()));
+/// The global font system for text rendering.
+pub static FONT_SYSTEM: LazyLock<Mutex<FontSystem>> = LazyLock::new(|| {
     Mutex::new(FontSystem::new_with_fonts([
         cosmic_text::fontdb::Source::Binary(std::sync::Arc::new(DEFAULT_FONT_DATA)),
     ]))
