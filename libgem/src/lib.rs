@@ -319,10 +319,8 @@ impl<G: Gem> App<G> {
         );
     }
 
-    pub fn handle_events_blocking(&mut self) -> DequeuedEvents {
-        let events = libopal::dequeue_events_blocking().expect("Failed to wait for an event");
-
-        for event in &*events {
+    fn handle_events(&mut self, events: &DequeuedEvents) {
+        for event in &**events {
             if let Some((ref mut title_bar, title_bar_y)) = self.cont.title_bar {
                 title_bar.handle_event(&mut self.gem, *event, self.cont.window_x, title_bar_y);
             }
@@ -333,6 +331,26 @@ impl<G: Gem> App<G> {
                 self.cont.window_x,
                 self.cont.window_y,
             );
+        }
+    }
+
+    /// Attempts to handle pending events if any or waits until there is an event to handle.
+    ///
+    /// the non-waiting equalivent is [`Self::try_handle_events`].
+    pub fn handle_events_blocking(&mut self) -> DequeuedEvents {
+        let events = libopal::dequeue_events_blocking().expect("Failed to wait for an event");
+        self.handle_events(&events);
+        events
+    }
+
+    /// Attempts to handle pending events if any, returning the dequeued events.
+    ///
+    /// The waiting equalivent would be [`Self::handle_events_blocking`],
+    /// which is obviously better to use except if you really don't want to block.
+    pub fn try_handle_events(&mut self) -> Option<DequeuedEvents> {
+        let events = libopal::dequeue_events_non_blocking().expect("Failed to get current events");
+        if let Some(ref events) = events {
+            self.handle_events(events);
         }
         events
     }
