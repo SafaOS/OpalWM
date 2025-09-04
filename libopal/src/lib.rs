@@ -1,5 +1,5 @@
 use std::{
-    io::{self, Read, Write},
+    io::{self, ErrorKind, Read, Write},
     ops::Deref,
     sync::{LazyLock, Mutex},
 };
@@ -81,6 +81,8 @@ impl Deref for DequeuedEvents {
 }
 
 /// Blockingly wait for an event from the window manager or dequeue waiting unhandled events.
+///
+/// The non-blocking equalivent would be [`dequeue_events_non_blocking`].
 pub fn dequeue_events_blocking() -> io::Result<DequeuedEvents> {
     {
         let mut events = EVENTS_QUEUE
@@ -103,6 +105,49 @@ pub fn dequeue_events_blocking() -> io::Result<DequeuedEvents> {
     match response {
         Response::Event(event) => {
             return Ok(DequeuedEvents::Single(event));
+        }
+        other => unreachable!(
+            "Shouldn't get any other kind of responses while waiting for events, got: {other:#?}"
+        ),
+    }
+}
+
+/// Attempt to dequeue Events from the WM connection pipe, returns Ok(None) if no events are available currently instead of blocking until there is.
+///
+/// The blocking equalivent would be [`dequeue_events_blocking`].
+pub fn dequeue_events_non_blocking() -> io::Result<Option<DequeuedEvents>> {
+    {
+        let mut events = EVENTS_QUEUE
+            .lock()
+            .expect("Failed to acquire lock on events queue");
+
+        let events = std::mem::take(&mut *events);
+        if !events.is_empty() {
+            return Ok(Some(DequeuedEvents::Multiple(events)));
+        }
+    }
+
+    let mut wm = WM_CONNECTION.lock().expect("Failed to lock WM connection");
+    println!("Sending the blocking request\n");
+    wm.set_can_block(false).expect("Failed to disable blocking");
+
+    let mut packet: [u8; MAX_PACKET_SIZE] = [0u8; MAX_PACKET_SIZE];
+    let read_results = Read::read(&mut *wm, &mut packet);
+    wm.set_can_block(true).expect("Failed to enable blocking");
+
+    let read = match read_results {
+        Ok(0) => return Ok(None),
+        Ok(amount) => amount,
+        Err(e) if e.kind() == ErrorKind::WouldBlock => return Ok(None),
+        Err(e) => return Err(e),
+    };
+
+    let msg = &packet[..read];
+
+    let response = Response::decode(msg).expect("Couldn't Parse WM's response");
+    match response {
+        Response::Event(event) => {
+            return Ok(Some(DequeuedEvents::Single(event)));
         }
         other => unreachable!(
             "Shouldn't get any other kind of responses while waiting for events, got: {other:#?}"
