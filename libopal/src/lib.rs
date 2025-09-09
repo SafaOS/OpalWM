@@ -128,7 +128,6 @@ pub fn dequeue_events_non_blocking() -> io::Result<Option<DequeuedEvents>> {
     }
 
     let mut wm = WM_CONNECTION.lock().expect("Failed to lock WM connection");
-    println!("Sending the blocking request\n");
     wm.set_can_block(false).expect("Failed to disable blocking");
 
     let mut packet: [u8; MAX_PACKET_SIZE] = [0u8; MAX_PACKET_SIZE];

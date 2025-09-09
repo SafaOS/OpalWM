@@ -4,7 +4,7 @@ use std::sync::{LazyLock, Mutex, MutexGuard};
 use safa_api::syscalls::types::Ri;
 use std::fs::OpenOptions;
 use std::os::safaos::AsRawResource;
-use std::os::safaos::IoUtils;
+use std::os::safaos::io::IoUtils;
 use std::usize;
 
 use safa_api::abi::mem::MemMapFlags;
