@@ -549,14 +549,13 @@ impl Windows {
             return false;
         }
 
-        let width = size_of_val(&self.window_ids[0]);
+        let width = size_of_val(&self.window_ids[0]) * 8;
         let row = (id / width as u16) as usize;
         let col = (id % width as u16) as usize;
 
         let byte = &mut self.window_ids[row];
         let bit = ((*byte >> col) & 1) == 1;
         let will_succeed = bit;
-
         if will_succeed {
             *byte &= !(1 << col);
         }
