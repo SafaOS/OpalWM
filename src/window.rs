@@ -23,6 +23,74 @@ use crate::{
     framebuffer::{self, BG_PIXEL, FB_INFO, Framebuffer, Pixel},
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct DamageRegion {
+    pos_x: usize,
+    pos_y: usize,
+    width: usize,
+    height: usize,
+}
+
+impl DamageRegion {
+    #[inline]
+    /// Checks if self overlaps with `win` returning the point which is covered from the window
+    pub fn overlaps_with(&self, win: &Window) -> Option<IntersectionPoint> {
+        let d_x0 = self.pos_x;
+        let d_x1 = self.pos_x + self.width;
+        let d_y0 = self.pos_y;
+        let d_y1 = self.pos_y + self.height;
+
+        let w_x0 = win.pos_x;
+        let w_x1 = win.pos_x + win.width;
+        let w_y0 = win.pos_y;
+        let w_y1 = win.pos_y + win.height;
+
+        if (d_x0 < w_x1 && d_x1 > w_x0) && (d_y0 < w_y1 && d_y1 > w_y0) {
+            let i_x0 = d_x0.max(w_x0) - w_x0;
+            let i_x1 = d_x1.min(w_x1) - w_x0;
+            let i_y0 = d_y0.max(w_y0) - w_y0;
+            let i_y1 = d_y1.min(w_y1) - w_y0;
+
+            Some(IntersectionPoint {
+                top_left_within: (i_x0, i_y0),
+                bottom_right_within: (i_x1, i_y1),
+            })
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum WindowDamageReason {
+    Moving {
+        old: DamageRegion,
+        new: DamageRegion,
+    },
+    Redraw {
+        x: usize,
+        y: usize,
+        width: usize,
+        height: usize,
+        region: DamageRegion,
+    },
+    Whole(DamageRegion),
+}
+
+impl WindowDamageReason {
+    pub fn place_regions(&self, to: &mut Vec<DamageRegion>) {
+        match self {
+            Self::Whole(w) => to.push(*w),
+            Self::Redraw { region, .. } => to.push(*region),
+            Self::Moving { old, new } => {
+                to.reserve(2);
+                to.push(*old);
+                to.push(*new);
+            }
+        }
+    }
+}
+
 // a Rectangle
 pub struct Window {
     //
@@ -40,6 +108,7 @@ pub struct Window {
     // TODO: Implement a good memory map or a resource wrapper to drop this automatically.
     mmap_ri: usize,
     com_pipe: Option<Arc<ClientComPipe>>,
+    damage_reason: Option<WindowDamageReason>,
 }
 
 impl Drop for Window {
@@ -156,6 +225,7 @@ impl Window {
             shm_ri,
             mmap_ri,
             com_pipe: None,
+            damage_reason: None,
         }
     }
 
@@ -179,6 +249,7 @@ impl Window {
             mmap_ri,
             shm_key,
             com_pipe: None,
+            damage_reason: None,
         }
     }
 
@@ -225,15 +296,112 @@ impl Window {
         );
     }
 
-    /// Returns the damage a window may have caused on the framebuffer, if it's position or dimensions changed
-    /// There is 2 damages: The damage before the operation, The damage after the operation
-    fn damage(&self) -> DamageRegion {
+    const fn get_whole_damage(&self) -> DamageRegion {
         DamageRegion {
             pos_x: self.pos_x,
             pos_y: self.pos_y,
             width: self.width,
             height: self.height,
         }
+    }
+
+    fn moved(&mut self, prev: DamageRegion, new: DamageRegion) {
+        self.update_damage(WindowDamageReason::Moving { old: prev, new });
+    }
+
+    /// Returns the damage a window may have caused on the framebuffer, if it's position or dimensions changed
+    /// There is 2 damages: The damage before the operation, The damage after the operation
+    fn damage_whole(&mut self) {
+        let region = self.get_whole_damage();
+        self.update_damage(WindowDamageReason::Whole(region));
+    }
+
+    /// Returns the potential damage to be done on given corridations inside of the window
+    fn get_damage_within(&self, x: usize, y: usize, width: usize, height: usize) -> DamageRegion {
+        let x = x.min(self.width);
+        let y = y.min(self.height);
+
+        let pos_x = (self.pos_x + x).min(self.pos_x + self.width);
+        let pos_y = (self.pos_y + y).min(self.pos_y + self.height);
+        let width = width.min(self.width - x);
+        let height = height.min(self.height - y);
+
+        DamageRegion {
+            pos_x,
+            pos_y,
+            width,
+            height,
+        }
+    }
+
+    fn damage_within(&mut self, x: usize, y: usize, width: usize, height: usize) {
+        self.update_damage(WindowDamageReason::Redraw {
+            x,
+            y,
+            width,
+            height,
+            region: self.get_damage_within(x, y, width, height),
+        });
+    }
+
+    /// Take the damage reason of self, places None in place of it
+    const fn take_damage(&mut self) -> Option<WindowDamageReason> {
+        self.damage_reason.take()
+    }
+
+    /// Updates the current damage reason
+    fn update_damage(&mut self, reason: WindowDamageReason) {
+        let new_reason = match (self.damage_reason, reason) {
+            // Moving take priority, the newer the more prior
+            (
+                Some(WindowDamageReason::Moving { old, .. }),
+                WindowDamageReason::Moving { new, .. },
+            ) => WindowDamageReason::Moving { old, new },
+            (Some(_), WindowDamageReason::Moving { .. }) => reason,
+            (Some(r @ WindowDamageReason::Moving { .. }), _) => r,
+            // Then comes whole damage
+            (Some(_), WindowDamageReason::Whole(_)) => reason, /* both work */
+            (Some(r @ WindowDamageReason::Whole(_)), _) => r,
+            // Then finally we combine redraws
+            (
+                Some(WindowDamageReason::Redraw {
+                    x: s_x,
+                    y: s_y,
+                    width: s_wid,
+                    height: s_hei,
+                    region: _,
+                }),
+                WindowDamageReason::Redraw {
+                    x: o_x,
+                    y: o_y,
+                    width: o_wid,
+                    height: o_hei,
+                    region: _,
+                },
+            ) => {
+                let n_x = s_x.min(o_x);
+                let n_y = s_y.min(o_y);
+                let max_n_x = s_x.max(o_x);
+                let max_n_y = s_y.max(o_y);
+
+                let diff_x = max_n_x - n_x;
+                let diff_y = max_n_y - n_y;
+                let width = s_wid.max(o_wid) + diff_x;
+                let height = s_hei.max(o_hei) + diff_y;
+
+                let n_r = self.get_damage_within(n_x, n_y, width, height);
+                WindowDamageReason::Redraw {
+                    x: n_x,
+                    y: n_y,
+                    width: width,
+                    height: height,
+                    region: n_r,
+                }
+            }
+            (None, reason) => reason,
+        };
+
+        self.damage_reason = Some(new_reason);
     }
 }
 
@@ -306,44 +474,6 @@ impl Sum for IntersectionPoint {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-struct DamageRegion {
-    pos_x: usize,
-    pos_y: usize,
-    width: usize,
-    height: usize,
-}
-
-impl DamageRegion {
-    #[inline]
-    /// Checks if self overlaps with `win` returning the point which is covered from the window
-    pub fn overlaps_with(&self, win: &Window) -> Option<IntersectionPoint> {
-        let d_x0 = self.pos_x;
-        let d_x1 = self.pos_x + self.width;
-        let d_y0 = self.pos_y;
-        let d_y1 = self.pos_y + self.height;
-
-        let w_x0 = win.pos_x;
-        let w_x1 = win.pos_x + win.width;
-        let w_y0 = win.pos_y;
-        let w_y1 = win.pos_y + win.height;
-
-        if (d_x0 < w_x1 && d_x1 > w_x0) && (d_y0 < w_y1 && d_y1 > w_y0) {
-            let i_x0 = d_x0.max(w_x0) - w_x0;
-            let i_x1 = d_x1.min(w_x1) - w_x0;
-            let i_y0 = d_y0.max(w_y0) - w_y0;
-            let i_y1 = d_y1.min(w_y1) - w_y0;
-
-            Some(IntersectionPoint {
-                top_left_within: (i_x0, i_y0),
-                bottom_right_within: (i_x1, i_y1),
-            })
-        } else {
-            None
-        }
-    }
-}
-
 const MAX_WINDOW_ID: usize = 1024 /* TODO: more windows? */;
 /// A window ID
 pub type WinID = u16;
@@ -373,7 +503,7 @@ pub struct Windows {
     window_ids: [u128; 8],
     focused_window: Option<WinID>,
 
-    damaged_regions: Vec<DamageRegion>,
+    damaged_regions_tmp: Vec<DamageRegion>,
 }
 
 impl Windows {
@@ -384,18 +514,14 @@ impl Windows {
             background_windows: IndexSet::with_hasher(FxBuildHasher),
             focused_window: None,
 
-            damaged_regions: Vec::new(),
+            damaged_regions_tmp: Vec::new(),
             windows: HashMap::with_hasher(FxBuildHasher),
             window_ids: [0; 8],
         }
     }
 
     #[inline]
-    fn insert_damage(&mut self, regions: &[DamageRegion]) {
-        // Faster than extend_from_slice for some reason (I checked the code they aren't reserving the additional elements)
-        self.damaged_regions.reserve(regions.len());
-        self.damaged_regions.extend_from_slice(regions);
-
+    fn signal_redraw(&mut self) {
         SHOULD_REDRAW.store(true, Ordering::Release);
     }
 
@@ -440,15 +566,20 @@ impl Windows {
 
     /// Redraw the damage caused by (and apply the results of) playing around with the windows using `self`
     pub fn damage_redraw(&mut self) {
-        if self.damaged_regions.is_empty() {
+        for (_, (win, _)) in self.windows.iter_mut() {
+            if let Some(toke) = win.take_damage() {
+                toke.place_regions(&mut self.damaged_regions_tmp);
+            }
+        }
+        if self.damaged_regions_tmp.is_empty() {
             return;
         }
 
         let mut fb = framebuffer::framebuffer();
 
-        let damage = core::mem::take(&mut self.damaged_regions);
+        let damage = &mut self.damaged_regions_tmp;
 
-        for region in &damage {
+        for region in &*damage {
             // Clear the damaged region
             fb.draw_rect_filled_with(
                 region.pos_x,
@@ -497,7 +628,7 @@ impl Windows {
             fix_window!(window);
         }
 
-        for r in damage {
+        for r in damage.drain(..) {
             fb.sync_pixels_rect(r.pos_x, r.pos_y, r.width, r.height);
         }
 
@@ -515,7 +646,7 @@ impl Windows {
             return Some((win.pos_x, win.pos_y));
         }
 
-        let damage0 = win.damage();
+        let damage0 = win.get_whole_damage();
 
         let max_x = FB_INFO.width;
         let max_y = FB_INFO.height;
@@ -533,7 +664,7 @@ impl Windows {
             return Some((win.pos_x, win.pos_y));
         }
 
-        let damage1 = win.damage();
+        let damage1 = win.get_whole_damage();
 
         if REALLY_VERBOSE {
             dlog!(
@@ -545,7 +676,8 @@ impl Windows {
             );
         }
 
-        self.insert_damage(&[damage0, damage1]);
+        win.moved(damage0, damage1);
+        self.signal_redraw();
         Some((damage1.pos_x, damage1.pos_y))
     }
 
@@ -566,37 +698,33 @@ impl Windows {
         } else {
             window.pos_y = (screen_height - window.height) / 2;
         }
-
-        let damage = window.damage();
+        // Damage the window
+        window.damage_whole();
 
         let id = self.add_id()?;
         self.windows.insert(id, (window, kind));
 
         match kind {
             WindowKind::Normal => self.set_focused(id),
-            WindowKind::Overlay => {
-                self.insert_damage(&[damage]);
-                self.overlay_windows.insert(id)
-            }
-            WindowKind::Background => {
-                self.insert_damage(&[damage]);
-                self.background_windows.insert(id)
-            }
+            WindowKind::Overlay => self.overlay_windows.insert(id),
+            WindowKind::Background => self.background_windows.insert(id),
         };
-
+        self.signal_redraw();
         Some(id)
     }
 
     /// Set the window with the id `win_id` as focused,
     /// handles everything including sending events and damage, and reordering the Z-list.
     pub fn set_focused(&mut self, win_id: WinID) -> bool {
-        let Some((window, window_kind)) = self.windows.get(&win_id) else {
+        let Some((window, window_kind)) = self.windows.get_mut(&win_id) else {
             return false;
         };
 
         let old_value = self.focused_window.replace(win_id);
+
         window.send_event(Event::WindowFocused);
-        let damage0 = window.damage();
+        window.damage_whole();
+        let window_kind = *window_kind;
 
         if let Some(old_id) = old_value
             && let Some((win, _)) = self.windows.get(&old_id)
@@ -619,16 +747,17 @@ impl Windows {
             }
         };
 
-        self.insert_damage(&[damage0]);
+        self.signal_redraw();
         true
     }
 
     /// Unfocus the currently focused window.
     pub fn unfocus_current(&mut self) {
         if let Some(win_id) = self.focused_window.take() {
-            if let Some((win, _)) = self.windows.get(&win_id) {
+            if let Some((win, _)) = self.windows.get_mut(&win_id) {
                 win.send_event(Event::WindowUnfocused);
-                self.insert_damage(&[win.damage()]);
+                win.damage_whole();
+                self.signal_redraw();
             }
         }
     }
@@ -671,21 +800,8 @@ impl Windows {
         height: usize,
     ) -> Result<(), ()> {
         let (win, _) = self.windows.get_mut(&win_id).ok_or(())?;
-
-        let x = x.min(win.width);
-        let y = y.min(win.height);
-
-        let pos_x = (win.pos_x + x).min(win.pos_x + win.width);
-        let pos_y = (win.pos_y + y).min(win.pos_y + win.height);
-        let width = width.min(win.width - x);
-        let height = height.min(win.height - y);
-
-        self.insert_damage(&[DamageRegion {
-            pos_x,
-            pos_y,
-            width,
-            height,
-        }]);
+        win.damage_within(x, y, width, height);
+        self.signal_redraw();
         Ok(())
     }
 
@@ -704,7 +820,8 @@ impl Windows {
         }
 
         let (window, window_kind) = self.windows.remove(&win_id).ok_or(())?;
-        self.insert_damage(&[window.damage()]);
+        let whole = window.get_whole_damage();
+        self.damaged_regions_tmp.push(whole);
 
         match window_kind {
             WindowKind::Normal => {
@@ -732,6 +849,7 @@ impl Windows {
             "Unexpected behavior, ID should have been removed successfully"
         );
         dlog!("Window removed");
+        self.signal_redraw();
         Ok(())
     }
 }
