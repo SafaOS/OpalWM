@@ -506,10 +506,13 @@ pub enum WindowKind {
     Normal,
     /// Background Window, always displayed below all other windows
     Background,
+    Cursor,
 }
 
 pub struct Windows {
     windows: FxHashMap<WinID, (Window, WindowKind)>,
+    /// The cursor always comes on top of other windows, only one cursor may exist
+    cursor: Option<WinID>,
     /// Windows that always come on top of other windows
     overlay_windows: IndexSet<WinID, FxBuildHasher>,
     /// The ordering of the windows in the Z Axis, the focused Window comes last
@@ -536,6 +539,7 @@ impl Windows {
             damaged_regions_tmp: Vec::new(),
             windows: HashMap::with_hasher(FxBuildHasher),
             window_ids: [0; 8],
+            cursor: None,
         }
     }
 
@@ -646,6 +650,15 @@ impl Windows {
             fix_window!(window);
         }
 
+        // Cursor rules all
+        if let Some(ref win_id) = self.cursor {
+            let (window, _) = self
+                .windows
+                .get_mut(win_id)
+                .expect("Cursor window doesn't exist");
+            fix_window!(window);
+        }
+
         for r in damage.drain(..) {
             fb.sync_pixels_rect(r.pos_x, r.pos_y, r.width, r.height);
         }
@@ -724,9 +737,16 @@ impl Windows {
         self.windows.insert(id, (window, kind));
 
         match kind {
-            WindowKind::Normal => self.set_focused(id),
-            WindowKind::Overlay => self.overlay_windows.insert(id),
-            WindowKind::Background => self.background_windows.insert(id),
+            WindowKind::Normal => {
+                self.set_focused(id);
+            }
+            WindowKind::Overlay => {
+                self.overlay_windows.insert(id);
+            }
+            WindowKind::Background => {
+                self.background_windows.insert(id);
+            }
+            WindowKind::Cursor => self.cursor = Some(id),
         };
         self.signal_redraw();
         Some(id)
@@ -764,6 +784,7 @@ impl Windows {
                 self.normal_windows.shift_remove(&win_id);
                 self.background_windows.insert(win_id);
             }
+            WindowKind::Cursor => unreachable!("The cursor's window shall not be focused on"),
         };
 
         self.signal_redraw();
@@ -860,6 +881,12 @@ impl Windows {
                     self.background_windows.shift_remove(&win_id),
                     "Window has not placed in the background Z-ordering"
                 );
+            }
+            WindowKind::Cursor => {
+                assert!(
+                    self.cursor.take().is_some(),
+                    "Window has not placed as the cursor"
+                )
             }
         }
 

@@ -50,7 +50,7 @@ impl MiceCursor {
             windows
                 .add_window(
                     Window::new_from_bmp(0, 0, cursor_bmp),
-                    WindowKind::Overlay,
+                    WindowKind::Cursor,
                     true,
                 )
                 .expect("Failed to add the Mouse cursor's window")
