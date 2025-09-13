@@ -48,7 +48,11 @@ impl MiceCursor {
         let win = {
             let mut windows = WINDOWS.lock().expect("failed to get lock on windows");
             windows
-                .add_window(Window::new_from_bmp(0, 0, cursor_bmp), WindowKind::Overlay)
+                .add_window(
+                    Window::new_from_bmp(0, 0, cursor_bmp),
+                    WindowKind::Overlay,
+                    true,
+                )
                 .expect("Failed to add the Mouse cursor's window")
         };
 

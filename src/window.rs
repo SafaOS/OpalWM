@@ -695,20 +695,27 @@ impl Windows {
 
     /// Adds a window and organizes it depending on `kind` (see [`WindowKind`]).
     /// Reposititons the window to fit most of the screen.
-    pub fn add_window(&mut self, mut window: Window, kind: WindowKind) -> Option<WinID> {
+    pub fn add_window(
+        &mut self,
+        mut window: Window,
+        kind: WindowKind,
+        can_relocate: bool,
+    ) -> Option<WinID> {
         let screen_width = FB_INFO.width as isize;
         let screen_height = FB_INFO.height as isize;
 
-        if window.max_x() > screen_width {
-            window.pos_x = 0;
-        } else {
-            window.pos_x = (screen_width - window.width as isize) / 2;
-        }
+        if can_relocate {
+            if window.max_x() > screen_width {
+                window.pos_x = 0;
+            } else {
+                window.pos_x = (screen_width - window.width as isize) / 2;
+            }
 
-        if window.max_y() > screen_height {
-            window.pos_y = 0;
-        } else {
-            window.pos_y = (screen_height - window.height as isize) / 2;
+            if window.max_y() > screen_height {
+                window.pos_y = 0;
+            } else {
+                window.pos_y = (screen_height - window.height as isize) / 2;
+            }
         }
         // Damage the window
         window.damage_whole();
@@ -870,11 +877,11 @@ pub static WINDOWS: Mutex<Windows> = Mutex::new(Windows::new());
 
 /// Adds a window with `kind` kind, returns the ID of the window.
 /// Repositions the window to fit most of it on the screen.
-pub fn add_window(window: Window, kind: WindowKind) -> Option<WinID> {
+pub fn add_window(window: Window, kind: WindowKind, can_relocate: bool) -> Option<WinID> {
     WINDOWS
         .lock()
         .expect("Failed to acquire lock on Windows while adding a Window")
-        .add_window(window, kind)
+        .add_window(window, kind, can_relocate)
 }
 
 pub fn damage_window(

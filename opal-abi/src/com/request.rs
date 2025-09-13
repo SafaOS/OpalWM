@@ -8,6 +8,8 @@ bitflags! {
     #[derive(Debug, Clone, Copy)]
     pub struct WindowFlags: u32 {
         const BG_WINDOW = 1 << 0;
+        const OVERLAY_WINDOW = 1 << 1;
+        const ABS_POS = 1 << 2;
     }
 }
 
@@ -37,6 +39,9 @@ pub struct CreateWindow {
     flags: WindowFlags,
     width: u32,
     height: u32,
+    cus_x: i32,
+    cus_y: i32,
+    __: u32,
 }
 
 impl CreateWindow {
@@ -46,7 +51,17 @@ impl CreateWindow {
             flags,
             width,
             height,
+            cus_x: 0,
+            cus_y: 0,
+            __: 0,
         }
+    }
+
+    pub const fn with_pos(mut self, x: i32, y: i32) -> Self {
+        self.flags = self.flags.union(WindowFlags::ABS_POS);
+        self.cus_x = x;
+        self.cus_y = y;
+        self
     }
 
     pub const fn width(&self) -> u32 {
@@ -55,6 +70,22 @@ impl CreateWindow {
 
     pub const fn height(&self) -> u32 {
         self.height
+    }
+
+    pub const fn x(&self) -> Option<i32> {
+        if self.flags.contains(WindowFlags::ABS_POS) {
+            Some(self.cus_x)
+        } else {
+            None
+        }
+    }
+
+    pub const fn y(&self) -> Option<i32> {
+        if self.flags.contains(WindowFlags::ABS_POS) {
+            Some(self.cus_y)
+        } else {
+            None
+        }
     }
 
     pub const fn flags(&self) -> WindowFlags {

@@ -61,9 +61,11 @@ fn handle_connect(connection: UnixSockConnection) {
                     let width = request.width() as usize;
                     let flags = request.flags();
 
+                    let abs_pos = flags.contains(WindowFlags::ABS_POS);
+
                     let window = Window::new_filled_with(
-                        0,
-                        0,
+                        request.x().map(|x| x as isize).unwrap_or(0),
+                        request.y().map(|y| y as isize).unwrap_or(0),
                         width,
                         height,
                         Pixel::from_rgb_with_alpha(0, 0, 0, 0),
@@ -75,9 +77,11 @@ fn handle_connect(connection: UnixSockConnection) {
                     let mut kind = WindowKind::Normal;
                     if flags.contains(WindowFlags::BG_WINDOW) {
                         kind = WindowKind::Background;
+                    } else if flags.contains(WindowFlags::OVERLAY_WINDOW) {
+                        kind = WindowKind::Overlay;
                     }
 
-                    window::add_window(window, kind)
+                    window::add_window(window, kind, !abs_pos)
                         .map(|id| {
                             dlog!("Added Window {id}, with the SHM Key {shm_key} for a client");
                             window_ids.push(id);
