@@ -244,7 +244,8 @@ impl<RootCanvas: DrawingCanvas, G: Gem> Element<RootCanvas, G> for Button<G> {
             libopal::Event::MouseChange(change_event) => (
                 Some(change_event.x()),
                 Some(change_event.y()),
-                change_event.held_buttons().contains(HeldMouseButtons::LEFT),
+                change_event.buttons_changed()
+                    && change_event.held_buttons().contains(HeldMouseButtons::LEFT),
             ),
             libopal::Event::MouseEnter(enter_event) => {
                 (Some(enter_event.x()), Some(enter_event.y()), false)
