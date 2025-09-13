@@ -11,6 +11,43 @@ use safa_api::abi::mem::MemMapFlags;
 
 use crate::dlog;
 
+#[inline]
+fn interpret_cords(
+    x_within: isize,
+    y_within: isize,
+    width_within: usize,
+    height_within: usize,
+    self_width: usize,
+    self_height: usize,
+) -> ((usize, usize), (usize, usize), (usize, usize)) {
+    let x_neg = x_within.is_negative();
+    let y_neg = y_within.is_negative();
+
+    let x_abs = x_within.unsigned_abs();
+    let y_abs = y_within.unsigned_abs();
+
+    let x = if x_neg { 0 } else { x_abs };
+    let y = if y_neg { 0 } else { y_abs };
+
+    let start_col = if x_neg { x_abs } else { 0 };
+    let start_row = if y_neg { y_abs } else { 0 };
+
+    let act_width = if x_neg {
+        width_within.saturating_sub(x_abs)
+    } else {
+        width_within
+    };
+    let act_height = if y_neg {
+        height_within.saturating_sub(y_abs)
+    } else {
+        height_within
+    };
+
+    let width = act_width.min(self_width - x);
+    let height = act_height.min(self_height - y);
+    ((x, y), (start_col, start_row), (width, height))
+}
+
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 /// A struct represinting information about the virtual framebuffer
@@ -100,22 +137,25 @@ impl Framebuffer {
     /// - `pixels: the pixels to draw, must be at least `width` * `height` long
     pub fn draw_rect(
         &mut self,
-        off_x: usize,
-        off_y: usize,
+        off_x: isize,
+        off_y: isize,
         width: usize,
         height: usize,
         pixels: &[Pixel],
     ) {
-        for row in 0..height {
-            let target_row_index = off_x + ((off_y + row) * self.width);
-            let src_row_index = row * width;
+        let ((off_x, off_y), (d_col_s, d_row_s), (d_width, d_height)) =
+            interpret_cords(off_x, off_y, width, height, self.width, self.height);
 
-            if target_row_index + width >= self.pixels.len() {
+        for row in 0..d_height {
+            let target_row_index = off_x + ((off_y + row) * self.width);
+            let src_row_index = d_col_s + (row + d_row_s) * width;
+
+            if target_row_index + d_width >= self.pixels.len() {
                 return;
             }
 
-            let mut target_pixels = &mut self.pixels[target_row_index..target_row_index + width];
-            let mut src_pixels = &pixels[src_row_index..src_row_index + width];
+            let mut target_pixels = &mut self.pixels[target_row_index..target_row_index + d_width];
+            let mut src_pixels = &pixels[src_row_index..src_row_index + d_width];
 
             // Alpha blend 4 pixels at a time
             while target_pixels.len() >= 4 {
@@ -151,8 +191,8 @@ impl Framebuffer {
     /// be relative to the given rectangale.
     pub fn draw_rect_within(
         &mut self,
-        off_x: usize,
-        off_y: usize,
+        off_x: isize,
+        off_y: isize,
         width: usize,
         height: usize,
         pixels: &[Pixel],
@@ -170,12 +210,20 @@ impl Framebuffer {
             "The given pixels rectangle must have height greater than or equal to the requested draw height"
         );
 
-        let height = height.min(self.height - off_y);
-        let width = width.min(self.width - off_x);
+        let ((off_x, off_y), (d_col_s, d_row_s), (width, height)) =
+            interpret_cords(off_x, off_y, width, height, self.width, self.height);
+
+        let x_slip = d_col_s;
+        let y_slip = d_row_s;
+        let pixels_x = pixel_rel_x + x_slip;
+        let pixels_y = pixel_rel_y + y_slip;
 
         for row in 0..height {
             let target_row_index = off_x + ((off_y + row) * self.width);
-            let src_row_index = pixel_rel_x + ((pixel_rel_y + row) * pixels_width);
+            let src_row_index = pixels_x + (pixels_y + row) * pixels_width;
+            if src_row_index >= pixels.len() {
+                return;
+            }
 
             let end_target_row_index = (target_row_index + width).min(self.pixels.len());
             let end_src_row_index = (src_row_index + width).min(pixels.len());
@@ -207,12 +255,15 @@ impl Framebuffer {
     /// Draws a rectangle filled with a pixel `pixel`
     pub fn draw_rect_filled_with(
         &mut self,
-        off_x: usize,
-        off_y: usize,
+        off_x: isize,
+        off_y: isize,
         width: usize,
         height: usize,
         pixel: Pixel,
     ) {
+        let ((off_x, off_y), (_, _), (width, height)) =
+            interpret_cords(off_x, off_y, width, height, self.width, self.height);
+
         for row in 0..height {
             let row_index = off_x + ((off_y + row) * self.width);
             let pixels = &mut self.pixels[row_index..row_index + width];
@@ -226,7 +277,10 @@ impl Framebuffer {
     }
 
     /// Syncs a rectangle to the framebuffer
-    pub fn sync_pixels_rect(&self, off_x: usize, off_y: usize, width: usize, height: usize) {
+    pub fn sync_pixels_rect(&self, off_x: isize, off_y: isize, width: usize, height: usize) {
+        let ((x, y), (_, _), (width, height)) =
+            interpret_cords(off_x, off_y, width, height, self.width, self.height);
+
         #[derive(Debug, Clone, Copy)]
         #[repr(C)]
         struct SyncRect {
@@ -237,8 +291,8 @@ impl Framebuffer {
         }
 
         let rect = SyncRect {
-            off_x,
-            off_y,
+            off_x: x,
+            off_y: y,
             width,
             height,
         };

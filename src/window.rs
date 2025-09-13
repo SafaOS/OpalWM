@@ -25,25 +25,33 @@ use crate::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct DamageRegion {
-    pos_x: usize,
-    pos_y: usize,
+    pos_x: isize,
+    pos_y: isize,
     width: usize,
     height: usize,
 }
 
 impl DamageRegion {
+    pub const fn max_x(&self) -> isize {
+        self.pos_x + self.width as isize
+    }
+
+    pub const fn max_y(&self) -> isize {
+        self.pos_y + self.height as isize
+    }
+
     #[inline]
     /// Checks if self overlaps with `win` returning the point which is covered from the window
     pub fn overlaps_with(&self, win: &Window) -> Option<IntersectionPoint> {
         let d_x0 = self.pos_x;
-        let d_x1 = self.pos_x + self.width;
+        let d_x1 = self.max_x();
         let d_y0 = self.pos_y;
-        let d_y1 = self.pos_y + self.height;
+        let d_y1 = self.max_y();
 
         let w_x0 = win.pos_x;
-        let w_x1 = win.pos_x + win.width;
+        let w_x1 = win.max_x();
         let w_y0 = win.pos_y;
-        let w_y1 = win.pos_y + win.height;
+        let w_y1 = win.max_y();
 
         if (d_x0 < w_x1 && d_x1 > w_x0) && (d_y0 < w_y1 && d_y1 > w_y0) {
             let i_x0 = d_x0.max(w_x0) - w_x0;
@@ -94,8 +102,8 @@ impl WindowDamageReason {
 // a Rectangle
 pub struct Window {
     //
-    pos_x: usize,
-    pos_y: usize,
+    pos_x: isize,
+    pos_y: isize,
     //
     width: usize,
     height: usize,
@@ -124,6 +132,14 @@ unsafe impl Send for Window {}
 unsafe impl Sync for Window {}
 
 impl Window {
+    pub const fn max_x(&self) -> isize {
+        self.pos_x + self.width as isize
+    }
+
+    pub const fn max_y(&self) -> isize {
+        self.pos_y + self.height as isize
+    }
+
     /// Returns a new instance of the Window with the given command pipe to send events to.
     pub fn with_com_pipe(mut self, com_pipe: Arc<ClientComPipe>) -> Self {
         self.com_pipe = Some(com_pipe);
@@ -180,7 +196,7 @@ impl Window {
     }
 
     /// Creates a new Window from a given BMP Image
-    pub fn new_from_bmp(pos_x: usize, pos_y: usize, image: BMPImage) -> Window {
+    pub fn new_from_bmp(pos_x: isize, pos_y: isize, image: BMPImage) -> Window {
         Self::new_from_pixels(
             pos_x,
             pos_y,
@@ -194,8 +210,8 @@ impl Window {
 
     /// Creates a new Window and fills it with `fill_pixels`
     pub fn new_from_pixels(
-        pos_x: usize,
-        pos_y: usize,
+        pos_x: isize,
+        pos_y: isize,
         width: usize,
         height: usize,
         fill_pixels: impl ExactSizeIterator + Iterator<Item = Pixel>,
@@ -231,8 +247,8 @@ impl Window {
 
     /// Creates a new Window and fills it repeatedly with a given `pixel`
     pub fn new_filled_with(
-        pos_x: usize,
-        pos_y: usize,
+        pos_x: isize,
+        pos_y: isize,
         width: usize,
         height: usize,
         pixel: Pixel,
@@ -267,6 +283,9 @@ impl Window {
     /// [`fb.sync_pixels_rect`] must be called afterwards on the area the window is in.
     fn draw_at(&self, fb: &mut Framebuffer, point: IntersectionPoint) {
         let (top_x_within, top_y_within) = point.top_left_within;
+        assert!(top_x_within >= 0);
+        assert!(top_y_within >= 0);
+
         let width = point.width();
         let height = point.height();
 
@@ -291,8 +310,8 @@ impl Window {
             unsafe { pixels.as_ref() },
             pixels_width,
             pixels_height,
-            top_x_within,
-            top_y_within,
+            top_x_within as usize,
+            top_y_within as usize,
         );
     }
 
@@ -321,8 +340,8 @@ impl Window {
         let x = x.min(self.width);
         let y = y.min(self.height);
 
-        let pos_x = (self.pos_x + x).min(self.pos_x + self.width);
-        let pos_y = (self.pos_y + y).min(self.pos_y + self.height);
+        let pos_x = (self.pos_x.saturating_add_unsigned(x)).min(self.max_x());
+        let pos_y = (self.pos_y.saturating_add_unsigned(y)).min(self.max_y());
         let width = width.min(self.width - x);
         let height = height.min(self.height - y);
 
@@ -407,8 +426,8 @@ impl Window {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct IntersectionPoint {
-    top_left_within: (usize, usize),
-    bottom_right_within: (usize, usize),
+    top_left_within: (isize, isize),
+    bottom_right_within: (isize, isize),
 }
 
 impl IntersectionPoint {
@@ -422,23 +441,23 @@ impl IntersectionPoint {
     pub const fn width(&self) -> usize {
         let (top_x, _) = self.top_left_within;
         let (bott_x, _) = self.bottom_right_within;
-        bott_x - top_x
+        bott_x.abs_diff(top_x)
     }
 
     pub const fn height(&self) -> usize {
         let (_, top_y) = self.top_left_within;
         let (_, bott_y) = self.bottom_right_within;
-        bott_y - top_y
+        bott_y.abs_diff(top_y)
     }
 
     /// Returns the x-coordinate of the intersection point, from the top-left corner.
-    pub const fn x(&self) -> usize {
+    pub const fn x(&self) -> isize {
         let (top_x, _) = self.top_left_within;
         top_x
     }
 
     /// Returns the y-coordinate of the intersection point, from the top-left corner.
-    pub const fn y(&self) -> usize {
+    pub const fn y(&self) -> isize {
         let (_, top_y) = self.top_left_within;
         top_y
     }
@@ -637,27 +656,21 @@ impl Windows {
     /// Adds `x` to window with the ID  `win_id` x position and `y` to the window with the ID `win_id`'s Y position
     ///
     /// Returns the new position if the Window ID exist
-    pub fn add_cord(&mut self, win_id: WinID, x: i32, y: i32) -> Option<(usize, usize)> {
+    pub fn add_cord(&mut self, win_id: WinID, x: i32, y: i32) -> Option<(isize, isize)> {
         let (win, _) = self.windows.get_mut(&win_id)?;
-
-        /* The guarantee that this will be successful, is that we have a mutable reference on Self and that all access on the Window will be performed from Self */
-        if x == 0 && y == 0 {
-            return Some((win.pos_x, win.pos_y));
-        }
 
         let damage0 = win.get_whole_damage();
 
         let max_x = FB_INFO.width;
         let max_y = FB_INFO.height;
 
-        win.pos_x = std::cmp::min(
-            win.pos_x.saturating_add_signed(x as isize),
-            max_x - win.width,
-        );
-        win.pos_y = std::cmp::min(
-            win.pos_y.saturating_add_signed(y as isize),
-            max_y - win.height,
-        );
+        win.pos_x = (win.pos_x + x as isize)
+            .min(max_x as isize - 16)
+            .max(-(win.width as isize) + 16);
+
+        win.pos_y = (win.pos_y + y as isize)
+            .min(max_y as isize - 16)
+            .max(-(win.height as isize) + 16);
 
         if win.pos_x == damage0.pos_x && win.pos_y == damage0.pos_y {
             return Some((win.pos_x, win.pos_y));
@@ -683,19 +696,19 @@ impl Windows {
     /// Adds a window and organizes it depending on `kind` (see [`WindowKind`]).
     /// Reposititons the window to fit most of the screen.
     pub fn add_window(&mut self, mut window: Window, kind: WindowKind) -> Option<WinID> {
-        let screen_width = FB_INFO.width;
-        let screen_height = FB_INFO.height;
+        let screen_width = FB_INFO.width as isize;
+        let screen_height = FB_INFO.height as isize;
 
-        if window.pos_x + window.width > screen_width {
+        if window.max_x() > screen_width {
             window.pos_x = 0;
         } else {
-            window.pos_x = (screen_width - window.width) / 2;
+            window.pos_x = (screen_width - window.width as isize) / 2;
         }
 
-        if window.pos_y + window.height > screen_height {
+        if window.max_y() > screen_height {
             window.pos_y = 0;
         } else {
-            window.pos_y = (screen_height - window.height) / 2;
+            window.pos_y = (screen_height - window.height as isize) / 2;
         }
         // Damage the window
         window.damage_whole();
@@ -764,8 +777,8 @@ impl Windows {
     /// Returns the ID of the top-most window that is in contact with the given position and size if any, and also the contact point
     pub fn window_in_contact(
         &self,
-        pos_x: usize,
-        pos_y: usize,
+        pos_x: isize,
+        pos_y: isize,
         width: usize,
         height: usize,
     ) -> Option<(WinID, IntersectionPoint)> {

@@ -27,8 +27,8 @@ const CURSOR_BYTES: &[u8] = include_bytes!("../assets/epic-cursor.bmp");
 /// The MiceCursor struct represents a mouse cursor on the screen, also handles mouse events.
 pub struct MiceCursor {
     win_id: WinID,
-    x: usize,
-    y: usize,
+    x: isize,
+    y: isize,
     height: usize,
     width: usize,
     last_mouse_event: MiceEvent,
