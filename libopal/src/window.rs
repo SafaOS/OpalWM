@@ -97,11 +97,19 @@ impl Window {
     }
 
     /// Request the creation of a new window from the WM.
-    pub fn create(flags: WindowFlags, width: u32, height: u32) -> Self {
-        let resp = send_request(RequestKind::CreateWindow(CreateWindow::new(
-            flags, width, height,
-        )))
-        .expect("Failed to send Create Window Request");
+    pub fn create(
+        flags: WindowFlags,
+        width: u32,
+        height: u32,
+        custom_pos: Option<(i32, i32)>,
+    ) -> Self {
+        let mut request = CreateWindow::new(flags, width, height);
+        if let Some((x, y)) = custom_pos {
+            request = request.with_pos(x, y);
+        }
+
+        let resp = send_request(RequestKind::CreateWindow(request))
+            .expect("Failed to send Create Window Request");
 
         let window = match resp {
             Response::Ok(OkResponse::WindowCreated(w)) => w,

@@ -45,6 +45,7 @@ pub struct GemConfig<'a> {
     win_flags: WindowFlags,
     width: u32,
     height: u32,
+    custom_position: Option<(i32, i32)>,
     body_styles: ContainerStyles,
 }
 
@@ -59,6 +60,7 @@ impl<'a> GemConfig<'a> {
             body_styles: ContainerStyles::new(),
             width,
             height,
+            custom_position: None,
         }
     }
 
@@ -98,6 +100,11 @@ impl<'a> GemConfig<'a> {
         self
     }
 
+    pub const fn with_position(mut self, x: i32, y: i32) -> Self {
+        self.custom_position = Some((x, y));
+        self
+    }
+
     /// Sets the styles of the App's body.
     pub const fn with_body_styles(mut self, styles: ContainerStyles) -> Self {
         self.body_styles = styles;
@@ -110,6 +117,7 @@ impl<'a> GemConfig<'a> {
                 self.win_flags,
                 self.width,
                 self.height,
+                self.custom_position,
                 self.title,
                 self.bg_color,
                 color,
@@ -119,6 +127,7 @@ impl<'a> GemConfig<'a> {
                 self.win_flags,
                 self.width,
                 self.height,
+                self.custom_position,
                 self.bg_color,
                 self.body_styles,
             ),
@@ -152,6 +161,7 @@ impl<G: Gem> RootContainer<G> {
         flags: WindowFlags,
         width: u32,
         height: u32,
+        custom_position: Option<(i32, i32)>,
         title: &str,
         bg_color: Pixel,
         border_color: Pixel,
@@ -162,7 +172,7 @@ impl<G: Gem> RootContainer<G> {
         let window_x = Self::CORNER_RADIUS / 2;
         let window_y = Self::TITLE_HEIGHT + 2;
 
-        let mut win = Window::create(flags, real_width, real_height);
+        let mut win = Window::create(flags, real_width, real_height, custom_position);
 
         win.draw_round_rect(
             0,
@@ -232,13 +242,14 @@ impl<G: Gem> RootContainer<G> {
         win_flags: WindowFlags,
         width: u32,
         height: u32,
+        custom_position: Option<(i32, i32)>,
         bg_color: Pixel,
         styles: ContainerStyles,
     ) -> Self {
         let window_x = 0;
         let window_y = 0;
 
-        let win = Window::create(win_flags, width, height);
+        let win = Window::create(win_flags, width, height, custom_position);
 
         Self {
             title_bar: None,
