@@ -22,7 +22,7 @@ use crate::{
     window::{WINDOWS, WinID, Window, WindowKind},
 };
 
-const CURSOR_BYTES: &[u8] = include_bytes!("../assets/epic-cursor.bmp");
+const CURSOR_BYTES: &[u8] = include_bytes!("../assets/epic-cursor-v2.bmp");
 
 /// The MiceCursor struct represents a mouse cursor on the screen, also handles mouse events.
 pub struct MiceCursor {
