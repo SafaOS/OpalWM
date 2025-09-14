@@ -331,14 +331,18 @@ impl<G: Gem> App<G> {
     }
 
     fn handle_events(&mut self, events: &DequeuedEvents) {
-        for event in &**events {
+        for event in (**events)
+            .iter()
+            .filter(|e| e.win() == self.cont.root.id())
+            .map(|w_eve| w_eve.event())
+        {
             if let Some((ref mut title_bar, title_bar_y)) = self.cont.title_bar {
-                title_bar.handle_event(&mut self.gem, *event, self.cont.window_x, title_bar_y);
+                title_bar.handle_event(&mut self.gem, event, self.cont.window_x, title_bar_y);
             }
 
             self.cont.body.handle_event(
                 &mut self.gem,
-                *event,
+                event,
                 self.cont.window_x,
                 self.cont.window_y,
             );
@@ -364,5 +368,14 @@ impl<G: Gem> App<G> {
             self.handle_events(events);
         }
         events
+    }
+
+    /// Returns the window `self` owns.
+    pub const fn win(&self) -> &Window {
+        &self.cont.root
+    }
+    /// Returns a muttable reference to the window self owns
+    pub const fn win_mut(&mut self) -> &mut Window {
+        &mut self.cont.root
     }
 }

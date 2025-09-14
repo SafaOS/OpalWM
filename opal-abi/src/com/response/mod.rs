@@ -63,7 +63,7 @@ pub enum OkResponse {
 pub enum Response {
     Ok(OkResponse) = 0xA1E_F00D_D,
     Err(ResponseError) = 0xBAD_F00D_D,
-    Event(event::Event) = 0x100_F00D_D,
+    Event(event::WindowEvent) = 0x100_F00D_D,
 }
 
 impl Response {

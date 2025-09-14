@@ -289,3 +289,30 @@ pub enum Event {
     WindowUnfocused,
     Key(KeyEvent),
 }
+
+/// Represents an event, has the id of the window which shall receive that event
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+pub struct WindowEvent {
+    event: Event,
+    win_id: u16,
+    __: u16,
+}
+
+impl WindowEvent {
+    pub const fn new(win_id: u16, event: Event) -> Self {
+        Self {
+            event,
+            win_id,
+            __: 0,
+        }
+    }
+
+    /// ID of the window which should receive that event
+    pub const fn win(&self) -> u16 {
+        self.win_id
+    }
+    /// The payload event
+    pub const fn event(&self) -> Event {
+        self.event
+    }
+}

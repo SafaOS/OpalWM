@@ -7,7 +7,7 @@ use std::{
 use opal_abi::com::{
     packet::MAX_PACKET_SIZE,
     request::{Request, RequestKind},
-    response::{OkResponse, Response, ScreenInfo},
+    response::{OkResponse, Response, ScreenInfo, event::WindowEvent},
 };
 use safa_api::sockets::UnixSockConnection;
 
@@ -15,7 +15,8 @@ pub mod window;
 
 pub use opal_abi::com::response::event;
 pub use opal_abi::com::response::event::Event;
-static EVENTS_QUEUE: Mutex<Vec<Event>> = Mutex::new(Vec::new());
+
+static EVENTS_QUEUE: Mutex<Vec<WindowEvent>> = Mutex::new(Vec::new());
 
 static WM_CONNECTION: LazyLock<Mutex<UnixSockConnection>> = LazyLock::new(|| {
     use safa_api::sockets::{SockKind, UnixSockConnectionBuilder};
@@ -60,12 +61,12 @@ pub(crate) fn send_request(req: RequestKind) -> io::Result<Response> {
 #[derive(Debug, Clone)]
 /// Results of [`dequeue_events_blocking`], contains the events that were dequeued
 pub enum DequeuedEvents {
-    Single(Event),
-    Multiple(Vec<Event>),
+    Single(WindowEvent),
+    Multiple(Vec<WindowEvent>),
 }
 
-impl AsRef<[Event]> for DequeuedEvents {
-    fn as_ref(&self) -> &[Event] {
+impl AsRef<[WindowEvent]> for DequeuedEvents {
+    fn as_ref(&self) -> &[WindowEvent] {
         match self {
             DequeuedEvents::Single(event) => std::slice::from_ref(event),
             DequeuedEvents::Multiple(events) => events.as_ref(),
@@ -74,7 +75,7 @@ impl AsRef<[Event]> for DequeuedEvents {
 }
 
 impl Deref for DequeuedEvents {
-    type Target = [Event];
+    type Target = [WindowEvent];
     fn deref(&self) -> &Self::Target {
         self.as_ref()
     }

@@ -125,4 +125,8 @@ impl Window {
 
         window
     }
+    // Returns the ID of this window
+    pub const fn id(&self) -> u16 {
+        self.win_id
+    }
 }

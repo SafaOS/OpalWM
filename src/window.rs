@@ -11,6 +11,7 @@ use std::{
 };
 
 use indexmap::IndexSet;
+use libopal::event::WindowEvent;
 use opal_abi::com::response::{Response, event::Event};
 use opal_img::bmp::BMPImage;
 use rustc_hash::{FxBuildHasher, FxHashMap};
@@ -152,9 +153,11 @@ impl Window {
     }
 
     /// Sends an event to the client that owns this window.
-    pub fn send_event(&self, event: Event) {
+    pub fn send_event(&self, self_id: WinID, event: Event) {
         if let Some(com_pipe) = &self.com_pipe {
-            if let Err(err) = com_pipe.sender().send_response(Response::Event(event))
+            if let Err(err) = com_pipe
+                .sender()
+                .send_response(Response::Event(WindowEvent::new(self_id, event)))
                 && err.kind() != ErrorKind::ConnectionAborted
                 && err.kind() != ErrorKind::ConnectionReset
             {
@@ -761,14 +764,14 @@ impl Windows {
 
         let old_value = self.focused_window.replace(win_id);
 
-        window.send_event(Event::WindowFocused);
+        window.send_event(win_id, Event::WindowFocused);
         window.damage_whole();
         let window_kind = *window_kind;
 
         if let Some(old_id) = old_value
             && let Some((win, _)) = self.windows.get(&old_id)
         {
-            win.send_event(Event::WindowUnfocused);
+            win.send_event(win_id, Event::WindowUnfocused);
         }
 
         match window_kind {
@@ -795,7 +798,7 @@ impl Windows {
     pub fn unfocus_current(&mut self) {
         if let Some(win_id) = self.focused_window.take() {
             if let Some((win, _)) = self.windows.get_mut(&win_id) {
-                win.send_event(Event::WindowUnfocused);
+                win.send_event(win_id, Event::WindowUnfocused);
                 win.damage_whole();
                 self.signal_redraw();
             }
@@ -847,7 +850,7 @@ impl Windows {
 
     pub fn send_event(&mut self, win_id: WinID, event: Event) -> Result<(), ()> {
         let (win, _) = self.windows.get_mut(&win_id).ok_or(())?;
-        win.send_event(event);
+        win.send_event(win_id, event);
         Ok(())
     }
 
