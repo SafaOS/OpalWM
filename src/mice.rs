@@ -133,7 +133,9 @@ impl MiceCursor {
                     }
 
                     match window_in_contact {
-                        Some((curr_id, contact_point)) => {
+                        Some((curr_id, kind, contact_point)) => {
+                            let can_focus = kind == WindowKind::Normal;
+
                             let mut mouse_enter = false;
                             let x = contact_point.x() as u32;
                             let y = contact_point.y() as u32;
@@ -181,9 +183,10 @@ impl MiceCursor {
                                 windows.send_event(curr_id, Event::MouseChange(change_event)).expect("Current Window was removed before we could handle a mouse event");
                             }
 
-                            if windows
-                                .focused_window()
-                                .is_none_or(|focus_id| focus_id != curr_id)
+                            if can_focus
+                                && windows
+                                    .focused_window()
+                                    .is_none_or(|focus_id| focus_id != curr_id)
                                 && left_button_is_pressed
                                 && !left_button_was_pressed
                             {
@@ -204,7 +207,7 @@ impl MiceCursor {
                     }
 
                     self.last_mouse_event = event.clone();
-                    self.current_window = window_in_contact.map(|(id, _)| id);
+                    self.current_window = window_in_contact.map(|(id, _, _)| id);
                 }
                 MouseEventKind::Null => unreachable!(),
             }

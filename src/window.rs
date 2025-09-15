@@ -577,7 +577,7 @@ const MAX_WINDOW_ID: usize = 1024 /* TODO: more windows? */;
 pub type WinID = u16;
 
 /// The type of the Window, defines the ordering which a Window may come over another, for example the cursor uses [`WindowKind::Overlay`]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WindowKind {
     /// Always displayed above all other windows
     Overlay,
@@ -890,7 +890,7 @@ impl Windows {
         pos_y: isize,
         width: usize,
         height: usize,
-    ) -> Option<(WinID, IntersectionPoint)> {
+    ) -> Option<(WinID, WindowKind, IntersectionPoint)> {
         let region = DamageRegion {
             pos_x,
             pos_y,
@@ -898,12 +898,25 @@ impl Windows {
             height,
         };
 
-        self.normal_windows.iter().rev().find_map(|win_id| {
+        // FIXME: handle all kinds of windows after adding event susbscribing.
+        let results = self.normal_windows.iter().rev().find_map(|win_id| {
             let (win, _) = self
                 .windows
                 .get(win_id)
                 .expect("Window wasn't removed from the Z-ordering when it's ID was deallocated");
-            region.overlaps_with(win).map(|point| (*win_id, point))
+            region
+                .overlaps_with(win)
+                .map(|point| (*win_id, WindowKind::Normal, point))
+        });
+        results.or_else(|| {
+            self.overlay_windows.iter().rev().find_map(|win_id| {
+                let (win, _) = self.windows.get(win_id).expect(
+                    "Window wasn't removed from the Z-ordering when it's ID was deallocated",
+                );
+                region
+                    .overlaps_with(win)
+                    .map(|point| (*win_id, WindowKind::Overlay, point))
+            })
         })
     }
 
