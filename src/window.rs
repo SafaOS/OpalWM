@@ -11,7 +11,13 @@ use std::{
 };
 
 use indexmap::IndexSet;
-use libopal::{event::WindowEvent, window::WindowFlags};
+use libopal::{
+    event::{
+        GlobalWindowAttached, GlobalWindowDeatached, GlobalWindowFocused, GlobalWindowUnfocused,
+        WindowEvent,
+    },
+    window::WindowFlags,
+};
 use opal_abi::com::{
     request::{IconID, MAX_NAME_LEN},
     response::{Response, WindowStatus, event::Event},
@@ -809,10 +815,20 @@ impl Windows {
                 window.pos_y = (screen_height - window.height as isize) / 2;
             }
         }
+
         // Damage the window
         window.damage_whole();
-
         let id = self.add_id()?;
+
+        if window.flags.contains(WindowFlags::GLOBAL) {
+            self.bordcast_global_event(Event::GlobalWindowAttached(GlobalWindowAttached::new(
+                id,
+                window.x() as i32,
+                window.y() as i32,
+                window.flags(),
+            )));
+        }
+
         self.windows.insert(id, (window, kind));
 
         match kind {
@@ -838,19 +854,19 @@ impl Windows {
             return false;
         };
 
-        let old_value = self.focused_window.replace(win_id);
-
-        window.status |= WindowStatus::FOCUSED;
+        window.status.insert(WindowStatus::FOCUSED);
         window.send_event(win_id, Event::WindowFocused);
         window.damage_whole();
-        let window_kind = *window_kind;
 
-        if let Some(old_id) = old_value
-            && let Some((win, _)) = self.windows.get_mut(&old_id)
-        {
-            win.status.remove(WindowStatus::FOCUSED);
-            win.send_event(win_id, Event::WindowUnfocused);
+        let window_kind = *window_kind;
+        if window.flags.contains(WindowFlags::GLOBAL) {
+            self.bordcast_global_event(Event::GlobalWindowFocused(GlobalWindowFocused::new(
+                win_id,
+            )));
         }
+
+        self.unfocus_current();
+        self.focused_window = Some(win_id);
 
         match window_kind {
             WindowKind::Normal => {
@@ -878,6 +894,13 @@ impl Windows {
             if let Some((win, _)) = self.windows.get_mut(&win_id) {
                 win.send_event(win_id, Event::WindowUnfocused);
                 win.damage_whole();
+                win.status.remove(WindowStatus::FOCUSED);
+
+                if win.flags.contains(WindowFlags::GLOBAL) {
+                    self.bordcast_global_event(Event::GlobalWindowUnfocused(
+                        GlobalWindowUnfocused::new(win_id),
+                    ));
+                }
                 self.signal_redraw();
             }
         }
@@ -945,6 +968,13 @@ impl Windows {
         Ok(())
     }
 
+    /// Bordcasts a global event to all the windows that are subscribed to that event.
+    pub fn bordcast_global_event(&mut self, event: Event) {
+        for (id, (win, _)) in self.windows.iter() {
+            win.send_event(*id, event);
+        }
+    }
+
     /// Completely removes a window from the window manager.
     pub fn remove_window(&mut self, win_id: WinID) -> Result<(), ()> {
         if let Some(focused_id) = self.focused_window
@@ -988,6 +1018,13 @@ impl Windows {
             self.remove_id(win_id),
             "Unexpected behavior, ID should have been removed successfully"
         );
+
+        if window.flags.contains(WindowFlags::GLOBAL) {
+            self.bordcast_global_event(Event::GlobalWindowDeatached(GlobalWindowDeatached::new(
+                win_id,
+            )));
+        }
+
         dlog!("Window removed");
         self.signal_redraw();
         Ok(())

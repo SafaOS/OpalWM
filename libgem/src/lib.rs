@@ -56,7 +56,7 @@ impl<'a> GemConfig<'a> {
             title: title,
             bg_color: LIGHT_BG_COLOR0,
             border_color: Some(BORDER_COLOR0),
-            win_flags: WindowFlags::empty(),
+            win_flags: WindowFlags::GLOBAL,
             body_styles: ContainerStyles::new(),
             width,
             height,
