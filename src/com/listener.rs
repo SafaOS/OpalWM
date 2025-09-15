@@ -160,6 +160,7 @@ fn handle_connect(connection: UnixSockConnection) {
                     }
                     continue;
                 }
+                RequestKind::GetWindowInfo(_) => todo!(),
             },
             Err(read_error) => match read_error {
                 ReadError::ParseErr(e) => Err(ResponseError::from(e)),

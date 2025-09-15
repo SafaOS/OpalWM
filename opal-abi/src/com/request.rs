@@ -48,6 +48,25 @@ pub const MAX_NAME_LEN: usize = 128;
 /// Identifies an Icon as the result of [`PreloadIcon`].
 pub type IconID = NonZero<u16>;
 
+/// Gets information about a global window or one that belongs to the current process, such as the name, icon, focus status, position and etc.
+///
+/// the response is [`super::response::WindowInfo`].
+#[derive(Debug, Clone, Copy, Encode, Decode)]
+#[repr(C)]
+pub struct GetWindowInfo {
+    id: u16,
+}
+
+impl GetWindowInfo {
+    pub const fn new(id: u16) -> Self {
+        Self { id }
+    }
+
+    pub const fn win_id(&self) -> u16 {
+        self.id
+    }
+}
+
 #[derive(Debug, Clone, Copy, Encode, Decode)]
 /// Asks the WM to load a preloaded Icon given it's ID to the client, the results are in BMP.
 #[repr(C)]
@@ -130,12 +149,18 @@ impl CreateWindow {
         }
     }
 
-    /// Returns the requested name of the window
-    pub const fn name(&self) -> &str {
+    /// Returns the requested name of the window or None if invalid utf8 (a request shall never be trusted).
+    pub const fn name(&self) -> Option<&str> {
         let len = self.name_len as usize;
         unsafe {
             // const hack
-            std::str::from_utf8_unchecked(std::slice::from_raw_parts(self.name.as_ptr(), len))
+            // multiple ones...
+            if let Ok(s) = std::str::from_utf8(std::slice::from_raw_parts(self.name.as_ptr(), len))
+            {
+                Some(s)
+            } else {
+                None
+            }
         }
     }
 
@@ -239,6 +264,7 @@ pub enum RequestKind {
     GetScreenInfo,
     PreloadIcon(PreloadIcon),
     LoadIcon(LoadIcon),
+    GetWindowInfo(GetWindowInfo),
 }
 
 #[derive(Encode, Decode, Clone, Copy, Debug)]

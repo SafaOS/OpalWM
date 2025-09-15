@@ -1,8 +1,9 @@
 use bincode::{Decode, Encode};
+use bitflags::bitflags;
 
 use crate::com::{
     packet::{BINCODE_CONFIG, MAX_PACKET_SIZE, PacketParseErr},
-    request::IconID,
+    request::{IconID, MAX_NAME_LEN, WindowFlags},
     response::error::ResponseError,
 };
 /// Possible response errors.
@@ -10,6 +11,90 @@ pub mod error;
 
 /// The layout of the events the WM can send to the client, an event is a kind of [response](self)
 pub mod event;
+
+bitflags! {
+    /// Information about the window status, such as if it is focused or not.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct WindowStatus: u32 {
+        const FOCUSED = 1 << 0;
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
+/// Response of [`super::request::GetWindowInfo`].
+pub struct WindowInfo {
+    icon_id: Option<IconID>,
+    __: u16,
+    x: i32,
+    y: i32,
+    flags: WindowFlags,
+    status: WindowStatus,
+    name_len: u16,
+    name_bytes: [u8; MAX_NAME_LEN],
+}
+
+impl WindowInfo {
+    /// Constructs a new [`WindowInfo`] response.
+    ///
+    /// `name`.len() must be less than or equal to [`MAX_NAME_LEN`] or otherwise it'd panick.
+    pub fn new(
+        name: &str,
+        icon_id: Option<IconID>,
+        x: i32,
+        y: i32,
+        flags: WindowFlags,
+        status: WindowStatus,
+    ) -> Self {
+        let len = name.len();
+        assert!(
+            len <= MAX_NAME_LEN,
+            "Window name '{name}' has len {len}, expected {MAX_NAME_LEN} or less"
+        );
+
+        let mut buf = [0u8; MAX_NAME_LEN];
+        buf[..len].copy_from_slice(name.as_bytes());
+
+        Self {
+            icon_id,
+            __: 0,
+            x,
+            y,
+            flags,
+            status,
+            name_len: len as u16,
+            name_bytes: buf,
+        }
+    }
+
+    pub const fn name(&self) -> &str {
+        let len = self.name_len as usize;
+        unsafe {
+            // const hack
+            std::str::from_utf8_unchecked(std::slice::from_raw_parts(self.name_bytes.as_ptr(), len))
+        }
+    }
+
+    pub const fn status(&self) -> WindowStatus {
+        self.status
+    }
+
+    pub const fn flags(&self) -> WindowFlags {
+        self.flags
+    }
+
+    pub const fn x(&self) -> i32 {
+        self.x
+    }
+
+    pub const fn y(&self) -> i32 {
+        self.y
+    }
+
+    pub const fn icon_id(&self) -> Option<IconID> {
+        self.icon_id
+    }
+}
 
 #[derive(Debug, Encode, Decode, Clone, Copy, PartialEq, Eq)]
 /// Response of [`super::request::LoadIcon`]
