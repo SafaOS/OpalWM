@@ -17,6 +17,7 @@ zerocopy-derive = "0.8.26"
 rustc-hash = "2.1.1"
 indexmap = "2.10.0"
 slab = "0.4.11"
+arrayvec = "0.7.6"
 
 [profile.release]
 debug = 2

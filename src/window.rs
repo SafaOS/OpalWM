@@ -11,8 +11,11 @@ use std::{
 };
 
 use indexmap::IndexSet;
-use libopal::event::WindowEvent;
-use opal_abi::com::response::{Response, event::Event};
+use libopal::{event::WindowEvent, window::WindowFlags};
+use opal_abi::com::{
+    request::{IconID, MAX_NAME_LEN},
+    response::{Response, WindowStatus, event::Event},
+};
 use opal_img::bmp::BMPImage;
 use rustc_hash::{FxBuildHasher, FxHashMap};
 use safa_api::abi::mem::{MemMapFlags, ShmFlags};
@@ -118,6 +121,11 @@ pub struct Window {
     mmap_ri: usize,
     com_pipe: Option<Arc<ClientComPipe>>,
     damage_reason: Option<WindowDamageReason>,
+
+    icon: Option<IconID>,
+    name: arrayvec::ArrayString<MAX_NAME_LEN>,
+    flags: WindowFlags,
+    status: WindowStatus,
 }
 
 impl Drop for Window {
@@ -133,12 +141,44 @@ unsafe impl Send for Window {}
 unsafe impl Sync for Window {}
 
 impl Window {
+    pub const fn x(&self) -> isize {
+        self.pos_x
+    }
+
+    pub const fn y(&self) -> isize {
+        self.pos_y
+    }
+
+    pub const fn width(&self) -> usize {
+        self.width
+    }
+
+    pub const fn height(&self) -> usize {
+        self.height
+    }
+
     pub const fn max_x(&self) -> isize {
         self.pos_x + self.width as isize
     }
 
     pub const fn max_y(&self) -> isize {
         self.pos_y + self.height as isize
+    }
+
+    pub fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    pub const fn icon(&self) -> Option<IconID> {
+        self.icon
+    }
+
+    pub const fn flags(&self) -> WindowFlags {
+        self.flags
+    }
+
+    pub const fn status(&self) -> WindowStatus {
+        self.status
     }
 
     /// Returns a new instance of the Window with the given command pipe to send events to.
@@ -199,8 +239,16 @@ impl Window {
     }
 
     /// Creates a new Window from a given BMP Image
-    pub fn new_from_bmp(pos_x: isize, pos_y: isize, image: BMPImage) -> Window {
+    pub fn new_from_bmp(
+        name: &str,
+        icon: Option<IconID>,
+        pos_x: isize,
+        pos_y: isize,
+        image: BMPImage,
+    ) -> Window {
         Self::new_from_pixels(
+            name,
+            icon,
             pos_x,
             pos_y,
             image.width() as usize,
@@ -213,6 +261,8 @@ impl Window {
 
     /// Creates a new Window and fills it with `fill_pixels`
     pub fn new_from_pixels(
+        name: &str,
+        icon: Option<IconID>,
         pos_x: isize,
         pos_y: isize,
         width: usize,
@@ -234,41 +284,67 @@ impl Window {
             pixels_mut[i] = pi;
         }
 
-        Window {
+        Window::new_inner(
+            name,
+            icon,
             pos_x,
             pos_y,
             width,
             height,
-            pixels,
-            shm_key,
             shm_ri,
             mmap_ri,
-            com_pipe: None,
-            damage_reason: None,
-        }
+            shm_key,
+            pixels,
+            WindowFlags::empty(),
+        )
     }
 
     /// Creates a new Window and fills it repeatedly with a given `pixel`
     pub fn new_filled_with(
+        name: &str,
+        icon: Option<IconID>,
         pos_x: isize,
         pos_y: isize,
         width: usize,
         height: usize,
         pixel: Pixel,
+        flags: WindowFlags,
     ) -> Self {
         let (pixels, shm_ri, mmap_ri, shm_key) = Self::allocate_pixel_buffer(width, height, pixel);
 
-        Window {
+        Window::new_inner(
+            name, icon, pos_x, pos_y, width, height, shm_ri, mmap_ri, shm_key, pixels, flags,
+        )
+    }
+
+    fn new_inner(
+        name: &str,
+        icon: Option<IconID>,
+        pos_x: isize,
+        pos_y: isize,
+        width: usize,
+        height: usize,
+        shm_ri: usize,
+        mmap_ri: usize,
+        shm_key: usize,
+        pixels: NonNull<[Pixel]>,
+        flags: WindowFlags,
+    ) -> Self {
+        Self {
             pos_x,
             pos_y,
             width,
             height,
             pixels,
+            shm_key,
             shm_ri,
             mmap_ri,
-            shm_key,
             com_pipe: None,
             damage_reason: None,
+            icon,
+            name: arrayvec::ArrayString::from(name).expect("Name too long"),
+            status: WindowStatus::empty(),
+            flags,
         }
     }
 
@@ -764,13 +840,15 @@ impl Windows {
 
         let old_value = self.focused_window.replace(win_id);
 
+        window.status |= WindowStatus::FOCUSED;
         window.send_event(win_id, Event::WindowFocused);
         window.damage_whole();
         let window_kind = *window_kind;
 
         if let Some(old_id) = old_value
-            && let Some((win, _)) = self.windows.get(&old_id)
+            && let Some((win, _)) = self.windows.get_mut(&old_id)
         {
+            win.status.remove(WindowStatus::FOCUSED);
             win.send_event(win_id, Event::WindowUnfocused);
         }
 
@@ -900,6 +978,10 @@ impl Windows {
         dlog!("Window removed");
         self.signal_redraw();
         Ok(())
+    }
+
+    pub fn get_window(&self, id: WinID) -> Option<&Window> {
+        self.windows.get(&id).map(|(win, _)| win)
     }
 }
 

@@ -8,7 +8,7 @@ use libopal::window::WindowFlags;
 use opal_abi::com::{
     request::RequestKind,
     response::{
-        CreateWindowResp, IconData, IconPreloaded, OkResponse, Response, ScreenInfo,
+        CreateWindowResp, IconData, IconPreloaded, OkResponse, Response, ScreenInfo, WindowInfo,
         error::ResponseError,
     },
 };
@@ -69,40 +69,46 @@ fn handle_connect(connection: UnixSockConnection) {
 
         let response = match receiver.receive_request() {
             Ok(req) => match req.kind() {
-                RequestKind::CreateWindow(request) => {
-                    let height = request.height() as usize;
-                    let width = request.width() as usize;
-                    let flags = request.flags();
+                RequestKind::CreateWindow(request) => match request.name() {
+                    Some(name) => {
+                        let height = request.height() as usize;
+                        let width = request.width() as usize;
+                        let flags = request.flags();
 
-                    let abs_pos = flags.contains(WindowFlags::ABS_POS);
+                        let abs_pos = flags.contains(WindowFlags::ABS_POS);
 
-                    let window = Window::new_filled_with(
-                        request.x().map(|x| x as isize).unwrap_or(0),
-                        request.y().map(|y| y as isize).unwrap_or(0),
-                        width,
-                        height,
-                        Pixel::from_rgb_with_alpha(0, 0, 0, 0),
-                    )
-                    .with_com_pipe(pipe.clone());
+                        let window = Window::new_filled_with(
+                            name,
+                            request.icon(),
+                            request.x().map(|x| x as isize).unwrap_or(0),
+                            request.y().map(|y| y as isize).unwrap_or(0),
+                            width,
+                            height,
+                            Pixel::from_rgb_with_alpha(0, 0, 0, 0),
+                            flags,
+                        )
+                        .with_com_pipe(pipe.clone());
 
-                    let shm_key = *window.shm_key();
+                        let shm_key = *window.shm_key();
 
-                    let mut kind = WindowKind::Normal;
-                    if flags.contains(WindowFlags::BG_WINDOW) {
-                        kind = WindowKind::Background;
-                    } else if flags.contains(WindowFlags::OVERLAY_WINDOW) {
-                        kind = WindowKind::Overlay;
+                        let mut kind = WindowKind::Normal;
+                        if flags.contains(WindowFlags::BG_WINDOW) {
+                            kind = WindowKind::Background;
+                        } else if flags.contains(WindowFlags::OVERLAY_WINDOW) {
+                            kind = WindowKind::Overlay;
+                        }
+
+                        window::add_window(window, kind, !abs_pos)
+                            .map(|id| {
+                                dlog!("Added Window {id}, with the SHM Key {shm_key} for a client");
+                                window_ids.push(id);
+                                CreateWindowResp::new(id, shm_key)
+                            })
+                            .map(OkResponse::WindowCreated)
+                            .ok_or(ResponseError::UnknownFatalError)
                     }
-
-                    window::add_window(window, kind, !abs_pos)
-                        .map(|id| {
-                            dlog!("Added Window {id}, with the SHM Key {shm_key} for a client");
-                            window_ids.push(id);
-                            CreateWindowResp::new(id, shm_key)
-                        })
-                        .map(OkResponse::WindowCreated)
-                        .ok_or(ResponseError::UnknownFatalError)
-                }
+                    None => Err(ResponseError::InvalidUtf8),
+                },
                 RequestKind::DamageWindow(damage) => window::damage_window(
                     damage.win_id(),
                     damage.x() as usize,
@@ -160,7 +166,28 @@ fn handle_connect(connection: UnixSockConnection) {
                     }
                     continue;
                 }
-                RequestKind::GetWindowInfo(_) => todo!(),
+                RequestKind::GetWindowInfo(w) => {
+                    let windows = WINDOWS
+                        .lock()
+                        .expect("Failed to acquire lock on windows for a listener");
+                    match windows.get_window(w.win_id()) {
+                        Some(w) => {
+                            let resp = WindowInfo::new(
+                                w.name(),
+                                w.icon(),
+                                w.x() as i32,
+                                w.y() as i32,
+                                w.width() as u32,
+                                w.height() as u32,
+                                w.flags(),
+                                w.status(),
+                            );
+
+                            Ok(OkResponse::WindowInfo(resp))
+                        }
+                        None => Err(ResponseError::UnknownWindow),
+                    }
+                }
             },
             Err(read_error) => match read_error {
                 ReadError::ParseErr(e) => Err(ResponseError::from(e)),

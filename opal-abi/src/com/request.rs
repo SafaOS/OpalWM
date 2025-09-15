@@ -195,6 +195,10 @@ impl CreateWindow {
         }
     }
 
+    pub const fn icon(&self) -> Option<IconID> {
+        self.icon_id
+    }
+
     pub const fn flags(&self) -> WindowFlags {
         self.flags
     }

@@ -49,7 +49,7 @@ impl MiceCursor {
             let mut windows = WINDOWS.lock().expect("failed to get lock on windows");
             windows
                 .add_window(
-                    Window::new_from_bmp(0, 0, cursor_bmp),
+                    Window::new_from_bmp("", None, 0, 0, cursor_bmp),
                     WindowKind::Cursor,
                     true,
                 )

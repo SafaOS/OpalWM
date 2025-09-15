@@ -1,4 +1,4 @@
-use bincode::{Decode, Encode};
+use bincode::{Decode, Encode, impl_borrow_decode};
 use bitflags::bitflags;
 
 use crate::com::{
@@ -20,16 +20,38 @@ bitflags! {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+impl Encode for WindowStatus {
+    fn encode<E: bincode::enc::Encoder>(
+        &self,
+        encoder: &mut E,
+    ) -> Result<(), bincode::error::EncodeError> {
+        u32::encode(&self.bits(), encoder)
+    }
+}
+
+impl<Context> Decode<Context> for WindowStatus {
+    fn decode<D: bincode::de::Decoder<Context = Context>>(
+        decoder: &mut D,
+    ) -> Result<Self, bincode::error::DecodeError> {
+        u32::decode(decoder).map(|bits| Self::from_bits_retain(bits))
+    }
+}
+
+impl_borrow_decode!(WindowStatus);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode)]
 #[repr(C)]
 /// Response of [`super::request::GetWindowInfo`].
 pub struct WindowInfo {
     icon_id: Option<IconID>,
-    __: u16,
+    __0: u16,
     x: i32,
     y: i32,
+    width: u32,
+    height: u32,
     flags: WindowFlags,
     status: WindowStatus,
+    __1: u32,
     name_len: u16,
     name_bytes: [u8; MAX_NAME_LEN],
 }
@@ -43,6 +65,8 @@ impl WindowInfo {
         icon_id: Option<IconID>,
         x: i32,
         y: i32,
+        width: u32,
+        height: u32,
         flags: WindowFlags,
         status: WindowStatus,
     ) -> Self {
@@ -57,11 +81,14 @@ impl WindowInfo {
 
         Self {
             icon_id,
-            __: 0,
+            __0: 0,
             x,
             y,
+            width,
+            height,
             flags,
             status,
+            __1: 0,
             name_len: len as u16,
             name_bytes: buf,
         }
@@ -188,6 +215,7 @@ pub enum OkResponse {
     ScreenInfo(ScreenInfo),
     IconPreloaded(IconPreloaded),
     LoadingIcon(IconData),
+    WindowInfo(WindowInfo),
 }
 
 #[derive(Debug, Encode, Decode, PartialEq, Eq)]
