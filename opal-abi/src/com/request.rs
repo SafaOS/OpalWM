@@ -1,3 +1,5 @@
+use std::num::NonZero;
+
 use bincode::{Decode, Encode, impl_borrow_decode};
 use bitflags::bitflags;
 
@@ -7,9 +9,17 @@ bitflags! {
     /// Flags to create a new window with
     #[derive(Debug, Clone, Copy)]
     pub struct WindowFlags: u32 {
+        /// The window shall come below normal windows, and cannot be dragged or focused on.
         const BG_WINDOW = 1 << 0;
+        /// The window shall come on top of normal windows, and cannot be dragged or focused on.
         const OVERLAY_WINDOW = 1 << 1;
+        /// The [`CreateWindow`] Request's x and y field refers to an absolute position within the screen,
+        /// and shall not be ignored.
         const ABS_POS = 1 << 2;
+        /// The window's creation/removal is public information,
+        /// anyone can access the window ID and a global event will be bordcast on
+        /// creation/removal and some window changes.
+        const GLOBAL = 1 << 3;
     }
 }
 
@@ -32,6 +42,48 @@ impl<Context> Decode<Context> for WindowFlags {
 
 impl_borrow_decode!(WindowFlags);
 
+/// The maximum length of a window's name
+pub const MAX_NAME_LEN: usize = 128;
+
+/// Identifies an Icon as the result of [`PreloadIcon`].
+pub type IconID = NonZero<u16>;
+
+#[derive(Debug, Clone, Copy, Encode, Decode)]
+/// Asks the WM to load a preloaded Icon given it's ID to the client, the results are in BMP.
+#[repr(C)]
+pub struct LoadIcon {
+    __: u64,
+    id: IconID,
+}
+
+impl LoadIcon {
+    pub const fn new(id: IconID) -> Self {
+        Self { __: 0, id }
+    }
+
+    pub const fn id(&self) -> IconID {
+        self.id
+    }
+}
+
+#[derive(Debug, Clone, Copy, Encode, Decode)]
+#[repr(C)]
+/// Asks the WM to preload an Icon, currently only in BMP format, responds with an [`IconID`].
+pub struct PreloadIcon {
+    __: u64,
+    len: usize,
+}
+
+impl PreloadIcon {
+    pub const fn new(len: usize) -> Self {
+        Self { __: 0, len }
+    }
+
+    pub const fn icon_size(&self) -> usize {
+        self.len
+    }
+}
+
 /// A Request to ask the WM to Create a new Window
 #[derive(Debug, Clone, Copy, Encode, Decode)]
 #[repr(C)]
@@ -41,19 +93,49 @@ pub struct CreateWindow {
     height: u32,
     cus_x: i32,
     cus_y: i32,
-    __: u32,
+    icon_id: Option<IconID>,
+    name_len: u16,
+    name: [u8; MAX_NAME_LEN],
 }
+
+const _: () = assert!(MAX_NAME_LEN <= u16::MAX as usize);
 
 impl CreateWindow {
     /// Constructs a new [`CreateWindow`] Request
-    pub const fn new(flags: WindowFlags, width: u32, height: u32) -> Self {
+    pub fn new(
+        name: &str,
+        flags: WindowFlags,
+        width: u32,
+        height: u32,
+        icon_id: Option<IconID>,
+    ) -> Self {
+        let name_len = name
+            .char_indices()
+            .rev()
+            .map(|(i, _)| i + 1)
+            .find(|len| *len <= MAX_NAME_LEN)
+            .unwrap_or(0);
+
+        let mut buf = [0u8; MAX_NAME_LEN];
+        buf[..name_len].copy_from_slice(&name.as_bytes()[..name_len]);
         Self {
             flags,
             width,
             height,
             cus_x: 0,
             cus_y: 0,
-            __: 0,
+            name_len: name_len as u16,
+            name: buf,
+            icon_id,
+        }
+    }
+
+    /// Returns the requested name of the window
+    pub const fn name(&self) -> &str {
+        let len = self.name_len as usize;
+        unsafe {
+            // const hack
+            std::str::from_utf8_unchecked(std::slice::from_raw_parts(self.name.as_ptr(), len))
         }
     }
 
@@ -144,7 +226,7 @@ impl DamageWindow {
 }
 
 /// The kind of request sent to the WM from a client
-#[derive(Debug, Encode, Decode)]
+#[derive(Debug, Clone, Copy, Encode, Decode)]
 #[repr(u32)]
 pub enum RequestKind {
     /// A request to ping the WM (ensures the connection is alive)
@@ -155,6 +237,8 @@ pub enum RequestKind {
     DamageWindow(DamageWindow),
     /// Gets screen info (eg. width, height)
     GetScreenInfo,
+    PreloadIcon(PreloadIcon),
+    LoadIcon(LoadIcon),
 }
 
 #[derive(Encode, Decode, Clone, Copy, Debug)]

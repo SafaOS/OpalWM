@@ -12,6 +12,8 @@ pub enum ResponseError {
     InvalidData,
     UnknownFatalError,
     UnknownWindow,
+    InvalidUtf8,
+    UnknownIcon,
 }
 
 impl From<PacketParseErr> for ResponseError {

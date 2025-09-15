@@ -7,10 +7,11 @@ use std::{
 use opal_abi::com::{
     packet::MAX_PACKET_SIZE,
     request::{Request, RequestKind},
-    response::{OkResponse, Response, ScreenInfo, event::WindowEvent},
+    response::{Response, ScreenInfo, event::WindowEvent},
 };
 use safa_api::sockets::UnixSockConnection;
 
+pub mod icon;
 pub mod window;
 
 pub use opal_abi::com::response::event;
@@ -18,9 +19,8 @@ pub use opal_abi::com::response::event::Event;
 
 static EVENTS_QUEUE: Mutex<Vec<WindowEvent>> = Mutex::new(Vec::new());
 
-static WM_CONNECTION: LazyLock<Mutex<UnixSockConnection>> = LazyLock::new(|| {
+pub(crate) static WM_CONNECTION: LazyLock<Mutex<UnixSockConnection>> = LazyLock::new(|| {
     use safa_api::sockets::{SockKind, UnixSockConnectionBuilder};
-
     let addr = opal_abi::CONNECT_ABSTRACT_ADDR;
     let mut builder = UnixSockConnectionBuilder::from_abstract_path(addr).unwrap();
 
@@ -31,15 +31,103 @@ static WM_CONNECTION: LazyLock<Mutex<UnixSockConnection>> = LazyLock::new(|| {
         .unwrap_or_else(|_| panic!("Failed to establish connection with the Opal WM at {addr}"))
 });
 
-pub(crate) fn send_request(req: RequestKind) -> io::Result<Response> {
-    let request = Request::new(req);
-    let (bytes, len) = request.encode();
+#[macro_export]
+macro_rules! send_request {
+    ($single: expr, $expected: ident $(( $capture: ident ))?) => {{
+        let req = $single;
+        let results = $crate::send_request_single(req).expect("failed to send request");
+        match results {
+            $crate::Response::Ok(o) => {
+                match o {
+                    ::opal_abi::com::response::OkResponse::$expected$(($capture))? => {
+                        $($capture)?
+                    }
+                    o => panic!("Unexpected response: {o:#?}, expected: {} for request: {:#?}", stringify!($expected), req)
+                }
+            }
+            $crate::Response::Err(e) => panic!("Error sending request: {e:#?}"),
+            $crate::Response::Event(_) => unreachable!(),
+        }
+    }};
+    ($req: expr, $expected: ident $(( $capture: ident ))?, $payload: expr) => {{
+        let req = $req;
+        let payload = $payload;
+        let results = $crate::send_request_with_payload(req, payload).expect("failed to send request");
+        match results {
+            $crate::Response::Ok(o) => {
+                match o {
+                    ::opal_abi::com::response::OkResponse::$expected$(($capture))? => {
+                        $($capture)?
+                    }
+                    o => panic!("Unexpected response: {o:#?}, expected: {} for request: {:#?}", stringify!($expected), req)
+                }
+            }
+            $crate::Response::Err(e) => panic!("Error sending request: {e:#?}"),
+            $crate::Response::Event(_) => unreachable!(),
+        }
+    }};
+
+    ($req: expr, $expected: ident $(( $capture: ident ))?, then read $am: expr) => {{
+        let req = $req;
+        let mut connection = $crate::WM_CONNECTION
+            .lock()
+            .expect("Failed to acquire lock on the WM's connection");
+        let results = $crate::send_request_single_inner(&mut connection, req).expect("failed to send request");
+        match results {
+            $crate::Response::Ok(o) => {
+                match o {
+                    ::opal_abi::com::response::OkResponse::$expected$(($capture))? => {
+                        let amount = $am;
+                        let mut bytes = vec![0; amount];
+                        if let Err(e) = $crate::wm_read_bytes(&mut connection, &mut bytes) {
+                            panic!("Failed to read {amount} bytes from the WM, error: {e:#?}, as per request: {req:#?}");
+                        }
+                        bytes
+                    }
+                    o => panic!("Unexpected response: {o:#?}, expected: {} for request: {:#?}", stringify!($expected), req)
+                }
+            }
+            $crate::Response::Err(e) => panic!("Error sending request: {e:#?}"),
+            $crate::Response::Event(_) => unreachable!(),
+        }
+    }};
+
+}
+
+pub(crate) fn wm_read_bytes(wm: &mut UnixSockConnection, bytes: &mut [u8]) -> io::Result<()> {
+    wm.read_exact(bytes)
+}
+
+pub(crate) fn send_request_single(req: RequestKind) -> io::Result<Response> {
+    let mut connection = WM_CONNECTION
+        .lock()
+        .expect("Failed to acquire lock on the WM's connection");
+    send_request_single_inner(&mut connection, req)
+}
+
+pub(crate) fn send_request_single_inner(
+    wm: &mut UnixSockConnection,
+    req: RequestKind,
+) -> io::Result<Response> {
+    send_request(wm, req)?;
+    read_response(wm)
+}
+
+pub(crate) fn send_request_with_payload(req: RequestKind, payload: &[u8]) -> io::Result<Response> {
+    let mut connection = WM_CONNECTION
+        .lock()
+        .expect("Failed to acquire lock on the WM's connection");
+
+    send_request(&mut connection, req)?;
+    connection.write_all(payload)?;
+    read_response(&mut connection)
+}
+
+#[inline]
+fn read_response(wm: &mut UnixSockConnection) -> io::Result<Response> {
     let mut events = EVENTS_QUEUE
         .lock()
         .expect("Failed to acquire lock on events queue");
-    let mut wm = WM_CONNECTION.lock().expect("Failed to lock WM connection");
-
-    Write::write(&mut *wm, &bytes[..len])?;
 
     let mut packet: [u8; MAX_PACKET_SIZE] = [0u8; MAX_PACKET_SIZE];
     let response = loop {
@@ -56,6 +144,15 @@ pub(crate) fn send_request(req: RequestKind) -> io::Result<Response> {
         }
     };
     Ok(response)
+}
+
+#[inline]
+fn send_request(wm: &mut UnixSockConnection, req: RequestKind) -> io::Result<()> {
+    let request = Request::new(req);
+    let (bytes, len) = request.encode();
+
+    Write::write_all(&mut *wm, &bytes[..len])?;
+    Ok(())
 }
 
 #[derive(Debug, Clone)]
@@ -158,22 +255,11 @@ pub fn dequeue_events_non_blocking() -> io::Result<Option<DequeuedEvents>> {
 /// Initializes the client that is going to communicate with the WM
 /// Panicks on failure
 pub fn init() {
-    assert!(
-        send_request(RequestKind::Ping).is_ok_and(|o| o == Response::Ok(OkResponse::Success)),
-        "Ping request, responded with an error"
-    )
+    send_request!(RequestKind::Ping, Success)
 }
 
 static SCREEN_INFO: LazyLock<ScreenInfo> = LazyLock::new(|| {
-    let screen_info = send_request(RequestKind::GetScreenInfo).expect("Failed to get screen info");
-    let Response::Ok(OkResponse::ScreenInfo(info)) = screen_info else {
-        unreachable!(
-            "Received an unexpected response from the WM, request: {:?}, response: {:?}",
-            RequestKind::GetScreenInfo,
-            screen_info
-        )
-    };
-
+    let info = send_request!(RequestKind::GetScreenInfo, ScreenInfo(i));
     info
 });
 

@@ -172,7 +172,7 @@ impl<G: Gem> RootContainer<G> {
         let window_x = Self::CORNER_RADIUS / 2;
         let window_y = Self::TITLE_HEIGHT + 2;
 
-        let mut win = Window::create(flags, real_width, real_height, custom_position);
+        let mut win = Window::create("", flags, real_width, real_height, custom_position, None);
 
         win.draw_round_rect(
             0,
@@ -249,7 +249,7 @@ impl<G: Gem> RootContainer<G> {
         let window_x = 0;
         let window_y = 0;
 
-        let win = Window::create(win_flags, width, height, custom_position);
+        let win = Window::create("", win_flags, width, height, custom_position, None);
 
         Self {
             title_bar: None,

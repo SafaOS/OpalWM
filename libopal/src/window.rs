@@ -1,9 +1,6 @@
 use std::ptr::NonNull;
 
-use opal_abi::com::{
-    request::{CreateWindow, DamageWindow, RequestKind},
-    response::{OkResponse, Response},
-};
+use opal_abi::com::request::{CreateWindow, DamageWindow, IconID, RequestKind};
 use safa_api::{
     abi::mem::{MemMapFlags, ShmFlags},
     syscalls::types::Ri,
@@ -44,18 +41,8 @@ impl Window {
 
     /// Redraws the window's pixels as a rectangle starting at (from_x, from_y) with the given width and height.
     pub fn redraw(&self, from_x: u32, from_y: u32, width: u32, height: u32) {
-        assert_eq!(
-            send_request(RequestKind::DamageWindow(DamageWindow::new(
-                self.win_id,
-                from_x,
-                from_y,
-                width,
-                height,
-            )))
-            .expect("Failed to send Damage Window request"),
-            Response::Ok(OkResponse::Success),
-            "Damage Window request returned an unexpected response"
-        );
+        let req = DamageWindow::new(self.win_id, from_x, from_y, width, height);
+        send_request!(RequestKind::DamageWindow(req), Success)
     }
 
     #[inline(always)]
@@ -98,24 +85,19 @@ impl Window {
 
     /// Request the creation of a new window from the WM.
     pub fn create(
+        title: &str,
         flags: WindowFlags,
         width: u32,
         height: u32,
         custom_pos: Option<(i32, i32)>,
+        icon: Option<IconID>,
     ) -> Self {
-        let mut request = CreateWindow::new(flags, width, height);
+        let mut request = CreateWindow::new(title, flags, width, height, icon);
         if let Some((x, y)) = custom_pos {
             request = request.with_pos(x, y);
         }
 
-        let resp = send_request(RequestKind::CreateWindow(request))
-            .expect("Failed to send Create Window Request");
-
-        let window = match resp {
-            Response::Ok(OkResponse::WindowCreated(w)) => w,
-            Response::Err(e) => panic!("Failed to create window: {:?}", e),
-            _ => panic!("Unexpected response, {:#?}", resp),
-        };
+        let window = send_request!(RequestKind::CreateWindow(request), WindowCreated(w));
 
         let id = window.window_id();
         let mut window = Self::new_inner(id, window.shm_key(), width, height);

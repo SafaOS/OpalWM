@@ -11,6 +11,7 @@ const REALLY_VERBOSE: bool = false;
 
 mod com;
 mod framebuffer;
+mod icons;
 mod kbd;
 mod logging;
 mod mice;

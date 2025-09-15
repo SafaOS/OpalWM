@@ -1,5 +1,5 @@
 use std::{
-    io::ErrorKind,
+    io::{ErrorKind, Read},
     process::{Command, Stdio},
     sync::Arc,
 };
@@ -7,14 +7,18 @@ use std::{
 use libopal::window::WindowFlags;
 use opal_abi::com::{
     request::RequestKind,
-    response::{CreateWindowResp, OkResponse, Response, ScreenInfo, error::ResponseError},
+    response::{
+        CreateWindowResp, IconData, IconPreloaded, OkResponse, Response, ScreenInfo,
+        error::ResponseError,
+    },
 };
 use safa_api::sockets::{SockKind, UnixListenerBuilder, UnixSockConnection};
 
 use crate::{
-    com::{ClientComPipe, ReadError},
+    com::{ClientComPipe, ClientComSender, ReadError},
     dlog, elog,
     framebuffer::{FB_INFO, Pixel},
+    icons::icon_size,
     log, logging,
     window::{self, WINDOWS, Window, WindowKind},
     wlog,
@@ -40,6 +44,15 @@ fn spawn_desktop() {
     {
         elog!("Failed to spawn desktop process: {}", err);
     }
+}
+
+fn write_response(sender: &mut ClientComSender, response: Response) -> Result<(), ()> {
+    dlog!("Writing a Response");
+    if let Err(e) = sender.send_response(response) {
+        elog!("Error writing to socket '{e}', disconnecting...");
+        return Err(());
+    }
+    Ok(())
 }
 
 fn handle_connect(connection: UnixSockConnection) {
@@ -107,6 +120,46 @@ fn handle_connect(connection: UnixSockConnection) {
 
                     Ok(OkResponse::ScreenInfo(ScreenInfo { width, height }))
                 }
+                RequestKind::PreloadIcon(req) => {
+                    let size = req.icon_size();
+                    let mut data = vec![0; size];
+                    if let Err(e) = receiver.read_exact(&mut data)
+                        && e.kind() != ErrorKind::ConnectionAborted
+                    {
+                        elog!(
+                            "Failed to read {size} bytes from the client, err: {e:#?}, disconnecting..."
+                        );
+                        break;
+                    }
+                    let id = crate::icons::add_icon(data);
+                    Ok(OkResponse::IconPreloaded(IconPreloaded::new(id)))
+                }
+                RequestKind::LoadIcon(req) => {
+                    let mut sender = pipe.sender();
+                    let Some(size) = icon_size(req.id()) else {
+                        match write_response(&mut sender, Response::Err(ResponseError::UnknownIcon))
+                        {
+                            Ok(()) => continue,
+                            Err(()) => break,
+                        }
+                    };
+
+                    match write_response(
+                        &mut sender,
+                        Response::Ok(OkResponse::LoadingIcon(IconData::new(size))),
+                    ) {
+                        Ok(()) => (),
+                        Err(()) => break,
+                    }
+
+                    if let Err(e) = crate::icons::load_icon_to(req.id(), &mut sender) {
+                        elog!(
+                            "Failed to write icon payload as per LoadIcon request to a client, err: {e:#?}, disconnecting..."
+                        );
+                        break;
+                    }
+                    continue;
+                }
             },
             Err(read_error) => match read_error {
                 ReadError::ParseErr(e) => Err(ResponseError::from(e)),
@@ -125,10 +178,7 @@ fn handle_connect(connection: UnixSockConnection) {
             Err(e) => Response::Err(e),
             Ok(k) => Response::Ok(k),
         };
-
-        dlog!("Writing a Response");
-        if let Err(e) = pipe.sender().send_response(response) {
-            elog!("Error writing to socket '{e}', disconnecting...");
+        if let Err(()) = write_response(&mut pipe.sender(), response) {
             break;
         }
     }

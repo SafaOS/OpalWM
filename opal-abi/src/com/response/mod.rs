@@ -2,6 +2,7 @@ use bincode::{Decode, Encode};
 
 use crate::com::{
     packet::{BINCODE_CONFIG, MAX_PACKET_SIZE, PacketParseErr},
+    request::IconID,
     response::error::ResponseError,
 };
 /// Possible response errors.
@@ -9,6 +10,50 @@ pub mod error;
 
 /// The layout of the events the WM can send to the client, an event is a kind of [response](self)
 pub mod event;
+
+#[derive(Debug, Encode, Decode, Clone, Copy, PartialEq, Eq)]
+/// Response of [`super::request::LoadIcon`]
+pub struct IconData {
+    __0: u64,
+    __1: u64,
+    icon_size: usize,
+}
+
+impl IconData {
+    pub const fn new(icon_size: usize) -> Self {
+        Self {
+            __0: 0,
+            __1: 0,
+            icon_size,
+        }
+    }
+    /// The amount of bytes to read next from the connection for the icon's data
+    pub const fn size(&self) -> usize {
+        self.icon_size
+    }
+}
+
+#[derive(Debug, Encode, Decode, Clone, Copy, PartialEq, Eq)]
+/// Response of [`super::request::PreloadIcon`]
+pub struct IconPreloaded {
+    __0: u64,
+    __1: u64,
+    icon_id: IconID,
+}
+
+impl IconPreloaded {
+    pub const fn new(id: IconID) -> Self {
+        Self {
+            __0: 0,
+            __1: 0,
+            icon_id: id,
+        }
+    }
+
+    pub const fn id(&self) -> IconID {
+        self.icon_id
+    }
+}
 
 #[derive(Debug, Encode, Decode, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
@@ -56,6 +101,8 @@ pub enum OkResponse {
     Success,
     WindowCreated(CreateWindowResp),
     ScreenInfo(ScreenInfo),
+    IconPreloaded(IconPreloaded),
+    LoadingIcon(IconData),
 }
 
 #[derive(Debug, Encode, Decode, PartialEq, Eq)]
