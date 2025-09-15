@@ -1,6 +1,8 @@
 use bincode::{Decode, Encode};
 use bitflags::bitflags;
 
+use crate::com::request::WindowFlags;
+
 /// When the mouse cursor enters a window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 #[repr(C)]
@@ -278,6 +280,100 @@ pub struct KeyEvent {
     pub kind: KeyEventKind,
 }
 
+#[derive(Debug, Clone, Copy, Encode, Decode, PartialEq, Eq)]
+#[repr(C)]
+/// A globally broadcast event when a window is added.
+pub struct GlobalWindowAttached {
+    id: u16,
+    __: u16,
+    x: i32,
+    y: i32,
+    flags: WindowFlags,
+}
+
+impl GlobalWindowAttached {
+    pub const fn new(id: u16, x: i32, y: i32, flags: WindowFlags) -> Self {
+        Self {
+            id,
+            __: 0,
+            x,
+            y,
+            flags,
+        }
+    }
+
+    pub const fn win_id(&self) -> u16 {
+        self.id
+    }
+
+    pub const fn win_flags(&self) -> WindowFlags {
+        self.flags
+    }
+
+    pub const fn x(&self) -> i32 {
+        self.x
+    }
+
+    pub const fn y(&self) -> i32 {
+        self.y
+    }
+}
+
+/// A globally broadcast event when a window is removed.
+#[derive(Debug, Clone, Copy, Encode, Decode, PartialEq, Eq)]
+#[repr(C)]
+pub struct GlobalWindowDeatached {
+    id: u16,
+    __0: u16,
+    __1: u64,
+    __2: u64,
+}
+
+impl GlobalWindowDeatached {
+    pub const fn new(win_id: u16) -> Self {
+        Self {
+            id: win_id,
+            __0: 0,
+            __1: 0,
+            __2: 0,
+        }
+    }
+}
+
+/// A globally broadcasted event when a global window is focused.
+#[derive(Debug, Clone, Copy, Encode, Decode, PartialEq, Eq)]
+#[repr(C)]
+pub struct GlobalWindowFocused {
+    id: u16,
+}
+
+impl GlobalWindowFocused {
+    pub const fn new(id: u16) -> Self {
+        Self { id }
+    }
+
+    pub const fn win_id(&self) -> u16 {
+        self.id
+    }
+}
+
+/// A globally broadcasted event when a global window is unfocused.
+#[derive(Debug, Clone, Copy, Encode, Decode, PartialEq, Eq)]
+#[repr(C)]
+pub struct GlobalWindowUnfocused {
+    id: u16,
+}
+
+impl GlobalWindowUnfocused {
+    pub const fn new(id: u16) -> Self {
+        Self { id }
+    }
+
+    pub const fn win_id(&self) -> u16 {
+        self.id
+    }
+}
+
 /// Represents an event that occurred on a window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 #[repr(u32)]
@@ -288,6 +384,10 @@ pub enum Event {
     WindowFocused,
     WindowUnfocused,
     Key(KeyEvent),
+    GlobalWindowAttached(GlobalWindowAttached),
+    GlobalWindowDeatached(GlobalWindowDeatached),
+    GlobalWindowFocused(GlobalWindowFocused),
+    GlobalWindowUnfocused(GlobalWindowUnfocused),
 }
 
 /// Represents an event, has the id of the window which shall receive that event

@@ -7,7 +7,7 @@ use crate::com::packet::{BINCODE_CONFIG, MAX_PACKET_SIZE, PacketParseErr};
 
 bitflags! {
     /// Flags to create a new window with
-    #[derive(Debug, Clone, Copy)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct WindowFlags: u32 {
         /// The window shall come below normal windows, and cannot be dragged or focused on.
         const BG_WINDOW = 1 << 0;
