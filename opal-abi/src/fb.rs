@@ -9,33 +9,23 @@ pub struct Pixel {
 }
 
 impl Pixel {
-    pub const BLACK: Self = Self {
-        blue: 0,
-        green: 0,
-        red: 0,
-        alpha: 0xFF,
-    };
+    pub const BLACK: Self = Self::rgb(0, 0, 0);
+    pub const WHITE: Self = Self::rgb(0xFF, 0xFF, 0xFF);
+    pub const NONE: Self = Self::rgba(0, 0, 0, 0);
 
-    pub const WHITE: Self = Self {
-        blue: 255,
-        green: 255,
-        red: 255,
-        alpha: 0xFF,
-    };
-
-    pub const fn red(&self) -> u8 {
+    pub const fn r(&self) -> u8 {
         self.red
     }
 
-    pub const fn green(&self) -> u8 {
+    pub const fn g(&self) -> u8 {
         self.green
     }
 
-    pub const fn blue(&self) -> u8 {
+    pub const fn b(&self) -> u8 {
         self.blue
     }
 
-    pub const fn alpha(&self) -> u8 {
+    pub const fn a(&self) -> u8 {
         self.alpha
     }
 
@@ -56,7 +46,7 @@ impl Pixel {
 
     /// Constructs a pixel from RGB values
     #[inline(always)]
-    pub const fn from_rgb(r: u8, g: u8, b: u8) -> Self {
+    pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
         Self {
             blue: b,
             green: g,
@@ -67,29 +57,29 @@ impl Pixel {
 
     #[inline(always)]
     /// Construct a Pixel from an RGBA Color
-    pub const fn from_rgb_with_alpha(r: u8, g: u8, b: u8, alpha: u8) -> Self {
-        Self::from_rgb(r, g, b).with_alpha(alpha)
+    pub const fn rgba(r: u8, g: u8, b: u8, alpha: u8) -> Self {
+        Self::rgb(r, g, b).with_alpha(alpha)
     }
 
     #[inline(always)]
     /// Construct a Pixel from a hex ARGB Color
-    pub const fn from_hex_argb(argb: u32) -> Self {
+    pub const fn hex_rgba(argb: u32) -> Self {
         let alpha = (argb >> 24) as u8;
         let red = (argb >> 16) as u8;
         let green = (argb >> 8) as u8;
         let blue = argb as u8;
 
-        Self::from_rgb_with_alpha(red, green, blue, alpha)
+        Self::rgba(red, green, blue, alpha)
     }
 
     #[inline(always)]
     /// Construct a Pixel from a hex RGB Color
-    pub const fn from_hex_rgb(rgb: u32) -> Self {
+    pub const fn hex_rgb(rgb: u32) -> Self {
         let red = (rgb >> 16) as u8;
         let green = (rgb >> 8) as u8;
         let blue = rgb as u8;
 
-        Self::from_rgb(red, green, blue)
+        Self::rgb(red, green, blue)
     }
 
     #[inline]

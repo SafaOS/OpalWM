@@ -150,7 +150,7 @@ impl<Canvas: DrawingCanvas, G: Gem> Element<Canvas, G> for TextBox {
             y,
             self.styles.max_width as u32,
             self.styles.max_height as u32,
-            Pixel::from_hex_argb(0x0),
+            Pixel::NONE,
             Some(bg_color),
         );
         canvas.draw_text(x, y, max_x, max_y, &mut self.text, Some(bg_color));

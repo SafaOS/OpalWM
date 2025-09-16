@@ -356,6 +356,7 @@ dependencies = [
 name = "opal-img"
 version = "0.1.0"
 dependencies = [
+ "opal-abi",
  "resize",
  "thiserror 2.0.16",
  "zerocopy",

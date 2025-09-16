@@ -1,5 +1,4 @@
 use libopal::window::Pixel;
-use opal_img::display::ARGB;
 
 use crate::{Gem, canvas::DrawingCanvas, element::Element};
 
@@ -64,19 +63,23 @@ impl<Canvas: DrawingCanvas, G: Gem> Element<Canvas, G> for Image {
         let width = self.width();
         let height = self.height();
 
-        let pixels: &mut dyn Iterator<Item = ARGB> = match &self.image {
-            ImageData::StaticBMP(bmp) => &mut bmp.pixels(),
-            ImageData::Generic(p) => &mut p.get_pixels().iter().copied(),
+        match &self.image {
+            ImageData::StaticBMP(bmp) => {
+                for (i, color) in bmp.pixels().enumerate() {
+                    let x = (i % width as usize) as u32 + x;
+                    let y = (i / width as usize) as u32 + y;
+                    let pixel = Pixel::rgb(color.red(), color.green(), color.blue())
+                        .with_alpha(color.alpha());
+
+                    canvas.draw_pixel(x, y, pixel, Some(bg_color));
+                }
+            }
+            ImageData::Generic(p) => {
+                for (d_y, row) in p.iter_rows_from(0).enumerate() {
+                    canvas.draw_row_iter(x, d_y as u32 + y, row.iter().copied(), Some(bg_color));
+                }
+            }
         };
-
-        for (i, color) in pixels.enumerate() {
-            let x = (i % width as usize) as u32 + x;
-            let y = (i / width as usize) as u32 + y;
-            let pixel =
-                Pixel::from_rgb(color.red(), color.green(), color.blue()).with_alpha(color.alpha());
-
-            canvas.draw_pixel(x, y, pixel, Some(bg_color));
-        }
 
         self.needs_redraw = false;
         (Some((x, y)), Some((x + width as u32, y + height as u32)))

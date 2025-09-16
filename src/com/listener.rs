@@ -84,7 +84,7 @@ fn handle_connect(connection: UnixSockConnection) {
                             request.y().map(|y| y as isize).unwrap_or(0),
                             width,
                             height,
-                            Pixel::from_rgb_with_alpha(0, 0, 0, 0),
+                            Pixel::NONE,
                             flags,
                         )
                         .with_com_pipe(pipe.clone());

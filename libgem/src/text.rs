@@ -80,7 +80,7 @@ impl Text {
         Self {
             buffer,
             alignment: None,
-            color: Pixel::from_rgb(0xFF, 0xFF, 0xFF),
+            color: Pixel::WHITE,
         }
     }
 
@@ -124,10 +124,10 @@ impl Text {
                 .lock()
                 .expect("Failed to get lock on SWASH Cache"),
             cosmic_text::Color::rgba(
-                self.color.red(),
-                self.color.green(),
-                self.color.blue(),
-                self.color.alpha(),
+                self.color.r(),
+                self.color.g(),
+                self.color.b(),
+                self.color.a(),
             ),
             |x, y, width, height, color| {
                 f(
@@ -135,7 +135,7 @@ impl Text {
                     y,
                     width,
                     height,
-                    Pixel::from_rgb(color.r(), color.g(), color.b()).with_alpha(color.a()),
+                    Pixel::rgba(color.r(), color.g(), color.b(), color.a()),
                 )
             },
         );

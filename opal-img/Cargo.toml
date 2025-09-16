@@ -8,3 +8,4 @@ resize = { version = "0.8.8", default-features = false, features = ["std"] }
 thiserror = "2.0.16"
 zerocopy = "0.8.26"
 zerocopy-derive = "0.8.26"
+opal-abi = { path = "../opal-abi" }

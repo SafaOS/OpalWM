@@ -11,10 +11,52 @@ pub trait DrawingCanvas {
     /// Draw a row of pixels `row` at the given y coordinate.
     /// by default alpha blends with the previously drawn pixels at the same location, however if `on_bg` is `Some`, it will instead alpha blend `row` with the `on_bg` pixels and use that as the final results.
     fn draw_row(&mut self, x: u32, y: u32, row: &[Pixel], on_bg: Option<Pixel>);
+    fn draw_row_iter<I, T>(&mut self, x: u32, y: u32, mut row: I, on_bg: Option<Pixel>)
+    where
+        I: Iterator<Item = T> + ExactSizeIterator,
+        T: Into<Pixel>,
+    {
+        let width = self.width();
+
+        let pixels = self.pixels_mut().expect("No implementation of pixels_mut");
+        let index = (y * width + x) as usize;
+        if index >= pixels.len() {
+            return;
+        }
+
+        let end = (index + row.len()).min(pixels.len());
+        let dst_row = &mut pixels[index..end];
+
+        if let Some(bg_color) = on_bg {
+            dst_row.fill(bg_color);
+        }
+
+        let mut i = 0;
+        while i < dst_row.len() {
+            if dst_row.len() - i >= 4 {
+                let top = [
+                    row.next().unwrap().into(),
+                    row.next().unwrap().into(),
+                    row.next().unwrap().into(),
+                    row.next().unwrap().into(),
+                ];
+
+                Pixel::blend_4(&top, unsafe { core::mem::transmute(&mut dst_row[i]) });
+                i += 4;
+            } else {
+                while let Some(item) = row.next() {
+                    dst_row[i] = item.into();
+                    i += 1;
+                }
+            }
+        }
+    }
+
     fn set_row(&mut self, x: u32, y: u32, width: u32, pixel: Pixel, on_bg: Option<Pixel>);
 
     fn width(&self) -> u32;
     fn height(&self) -> u32;
+    fn pixels_mut(&mut self) -> Option<&mut [Pixel]>;
 
     #[inline]
     fn draw_text(
@@ -269,6 +311,10 @@ impl DrawingCanvas for Window {
     #[inline]
     fn width(&self) -> u32 {
         self.width()
+    }
+
+    fn pixels_mut(&mut self) -> Option<&mut [Pixel]> {
+        Some(self.pixels_mut())
     }
 
     #[inline(always)]

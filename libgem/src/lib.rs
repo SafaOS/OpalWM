@@ -23,10 +23,10 @@ use crate::{
 
 pub use ::cosmic_text;
 
-pub const BORDER_COLOR0: Pixel = Pixel::from_rgb(0xFD, 0xB0, 0xC0);
-pub const DARK_BG_COLOR0: Pixel = Pixel::from_rgb_with_alpha(0, 0, 0, 0x80);
-pub const DARK_BG_COLOR1: Pixel = Pixel::from_rgb_with_alpha(0, 0, 0, 0xFF);
-pub const LIGHT_BG_COLOR0: Pixel = Pixel::from_rgb_with_alpha(0xFB, 0xF1, 0xC7, 0xFF);
+pub const BORDER_COLOR0: Pixel = Pixel::rgb(0xFD, 0xB0, 0xC0);
+pub const DARK_BG_COLOR0: Pixel = Pixel::rgba(0, 0, 0, 0x80);
+pub const DARK_BG_COLOR1: Pixel = Pixel::rgba(0, 0, 0, 0xFF);
+pub const LIGHT_BG_COLOR0: Pixel = Pixel::rgba(0xFB, 0xF1, 0xC7, 0xFF);
 
 /// A Gem is the app state that [`App`] contains, it can be initialized into an app using [`Gem::init`].
 pub trait Gem: Sized + 'static {
@@ -165,7 +165,7 @@ impl<G: Gem> RootContainer<G> {
     const CORNER_RADIUS: u32 = 8;
     const TITLE_HEIGHT: u32 = Self::DEFAULT_TITLE_FONT_SIZE + 10;
     const DEFAULT_TITLE_FONT_SIZE: u32 = 12;
-    const TRANSPARENT: Pixel = Pixel::from_hex_argb(0);
+    const TRANSPARENT: Pixel = Pixel::NONE;
 
     fn new_with_border(
         flags: WindowFlags,
@@ -223,7 +223,7 @@ impl<G: Gem> RootContainer<G> {
             .with_hover_color(Self::TRANSPARENT)
             .with_border_color(None)
             .with_text_color(Pixel::BLACK)
-            .with_hover_text_color(Pixel::from_rgb(0xFF, 0xFF, 0xFF));
+            .with_hover_text_color(Pixel::rgb(0xFF, 0xFF, 0xFF));
 
         let mut x_button = Button::new("X", x_button_styles);
         x_button.on_click(|_, _| std::process::exit(0));
@@ -270,7 +270,7 @@ impl<G: Gem> RootContainer<G> {
             window_y,
             body: Container::new(styles, width, height),
             bg_color,
-            border_color: Pixel::from_hex_argb(0),
+            border_color: Pixel::NONE,
         }
     }
 }

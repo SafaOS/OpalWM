@@ -313,7 +313,7 @@ pub fn framebuffer() -> MutexGuard<'static, Framebuffer> {
         .expect("Failed to acquire lock on framebuffer")
 }
 
-pub const BG_PIXEL: Pixel = Pixel::from_hex_rgb(0x282828);
+pub const BG_PIXEL: Pixel = Pixel::hex_rgb(0x282828);
 
 /// Clears the screen
 pub fn clear() {

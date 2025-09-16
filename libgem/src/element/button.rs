@@ -18,8 +18,8 @@ pub struct ButtonStyle {
 }
 
 impl ButtonStyle {
-    const DEFAULT_HOVER_COLOR: Pixel = Pixel::from_rgb(0xFD, 0xB0, 0xC0);
-    const DEFAULT_NORMAL_COLOR: Pixel = Pixel::from_rgb(0xFD, 0xB0, 0xF0);
+    const DEFAULT_HOVER_COLOR: Pixel = Pixel::rgb(0xFD, 0xB0, 0xC0);
+    const DEFAULT_NORMAL_COLOR: Pixel = Pixel::rgb(0xFD, 0xB0, 0xF0);
     const TEXT_COLOR: Pixel = Pixel::BLACK;
     const DEFAULT_BORDER_RADIUS: u32 = 8;
     const DEFAULT_FONT_HEIGHT: f32 = 12.0;

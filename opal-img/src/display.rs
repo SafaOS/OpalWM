@@ -52,3 +52,9 @@ impl ARGB {
         Self::from_rgb(r, g, b).with_alpha(alpha)
     }
 }
+
+impl Into<opal_abi::fb::Pixel> for ARGB {
+    fn into(self) -> opal_abi::fb::Pixel {
+        opal_abi::fb::Pixel::rgba(self.red(), self.green(), self.blue(), self.alpha())
+    }
+}

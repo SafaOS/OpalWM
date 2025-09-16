@@ -261,7 +261,7 @@ impl Window {
             image.height() as usize,
             image
                 .pixels()
-                .map(|c| Pixel::from_rgb(c.red(), c.green(), c.blue()).with_alpha(c.alpha())),
+                .map(|c| Pixel::rgb(c.red(), c.green(), c.blue()).with_alpha(c.alpha())),
         )
     }
 
@@ -276,7 +276,7 @@ impl Window {
         fill_pixels: impl ExactSizeIterator + Iterator<Item = Pixel>,
     ) -> Window {
         let (mut pixels, shm_ri, mmap_ri, shm_key) =
-            Self::allocate_pixel_buffer(width, height, Pixel::from_hex_argb(0));
+            Self::allocate_pixel_buffer(width, height, Pixel::NONE);
         let pixels_mut = unsafe { pixels.as_mut() };
 
         assert_eq!(
