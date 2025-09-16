@@ -42,6 +42,41 @@ impl PixelImage {
         &self.pixels
     }
 
+    pub fn scale(&mut self, width: u32, height: u32, scale_kind: ScaleType) {
+        if self.width == width && self.height == height {
+            return;
+        }
+
+        let old_pixels = self
+            .pixels
+            .iter()
+            .map(|color| RGBA::new(color.red(), color.green(), color.blue(), color.alpha()))
+            .collect::<Vec<_>>();
+
+        let mut resizer = Resizer::new(
+            self.width as usize,
+            self.height as usize,
+            width as usize,
+            height as usize,
+            RGBA8,
+            scale_kind,
+        )
+        .expect("Failed to construct a Resizer");
+
+        let mut new_pixels = vec![RGBA::new(0, 0, 0, 0); height as usize * width as usize];
+        resizer
+            .resize(&old_pixels, &mut new_pixels)
+            .expect("Failed to resize Image");
+        let new_image = PixelImage {
+            pixels: new_pixels
+                .iter()
+                .map(|color| ARGB::from_rgba(color.r, color.g, color.b, color.a))
+                .collect(),
+            width,
+            height,
+        };
+        *self = new_image
+    }
     pub fn new_scaled(
         pixels: impl Iterator<Item = ARGB>,
         old_width: u32,
