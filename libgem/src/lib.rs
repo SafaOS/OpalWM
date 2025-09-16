@@ -40,6 +40,7 @@ pub trait Gem: Sized + 'static {
 /// Configuration to build a [`Gem`] into an [`App`].
 pub struct GemConfig<'a> {
     title: &'a str,
+    name: &'a str,
     bg_color: Pixel,
     border_color: Option<Pixel>,
     win_flags: WindowFlags,
@@ -54,6 +55,7 @@ impl<'a> GemConfig<'a> {
     pub const fn new(title: &'a str, width: u32, height: u32) -> Self {
         Self {
             title: title,
+            name: title,
             bg_color: LIGHT_BG_COLOR0,
             border_color: Some(BORDER_COLOR0),
             win_flags: WindowFlags::GLOBAL,
@@ -73,6 +75,12 @@ impl<'a> GemConfig<'a> {
     /// Sets the title of the App.
     pub const fn with_title(mut self, title: &'a str) -> Self {
         self.title = title;
+        self
+    }
+
+    /// Sets the name of the App.
+    pub const fn with_name(mut self, name: &'a str) -> Self {
+        self.name = name;
         self
     }
 
@@ -119,11 +127,13 @@ impl<'a> GemConfig<'a> {
                 self.height,
                 self.custom_position,
                 self.title,
+                self.name,
                 self.bg_color,
                 color,
                 self.body_styles,
             ),
             None => RootContainer::new_without_border(
+                self.name,
                 self.win_flags,
                 self.width,
                 self.height,
@@ -163,6 +173,7 @@ impl<G: Gem> RootContainer<G> {
         height: u32,
         custom_position: Option<(i32, i32)>,
         title: &str,
+        name: &str,
         bg_color: Pixel,
         border_color: Pixel,
         styles: ContainerStyles,
@@ -172,7 +183,7 @@ impl<G: Gem> RootContainer<G> {
         let window_x = Self::CORNER_RADIUS / 2;
         let window_y = Self::TITLE_HEIGHT + 2;
 
-        let mut win = Window::create("", flags, real_width, real_height, custom_position, None);
+        let mut win = Window::create(name, flags, real_width, real_height, custom_position, None);
 
         win.draw_round_rect(
             0,
@@ -239,6 +250,7 @@ impl<G: Gem> RootContainer<G> {
     }
 
     fn new_without_border(
+        name: &str,
         win_flags: WindowFlags,
         width: u32,
         height: u32,
@@ -249,7 +261,7 @@ impl<G: Gem> RootContainer<G> {
         let window_x = 0;
         let window_y = 0;
 
-        let win = Window::create("", win_flags, width, height, custom_position, None);
+        let win = Window::create(name, win_flags, width, height, custom_position, None);
 
         Self {
             title_bar: None,
