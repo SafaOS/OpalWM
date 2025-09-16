@@ -48,11 +48,14 @@ pub trait DrawingCanvas {
         pixel: Pixel,
         on_bg: Option<Pixel>,
     ) {
-        // includes x2 and y2
-        let width = (x2 - x1) + 1;
-        let height = (y2 - y1) + 1;
+        let x = x2.min(x1);
+        let y = y2.min(y1);
 
-        self.draw_rect(x1, y1, width, height, pixel, on_bg);
+        // includes x2 and y2
+        let width = x2.abs_diff(x1) + 1;
+        let height = y2.abs_diff(y1) + 1;
+
+        self.draw_rect(x, y, width, height, pixel, on_bg);
     }
 
     #[inline]
@@ -86,49 +89,49 @@ pub trait DrawingCanvas {
     }
 
     #[inline]
-    /// Draw a circle, starting at (x, y) which is the top-left corner of the circle,
-    /// and ending at (x + radius*2, y + radius*2).
-    fn draw_circle(
+    /// Draw a circle, starting at (center_x-radius, center_y-radius)
+    /// which is the top-left corner of the circle,
+    /// and ends at (center_x+radius, center_y+radius) which is the top-right corner of the circle.
+    fn draw_circle_filled(
         &mut self,
-        x: u32,
-        y: u32,
+        center_x: u32,
+        center_y: u32,
         radius: u32,
-        border_color: Pixel,
+        fill_color: Pixel,
         on_bg: Option<Pixel>,
     ) {
-        let x = x + (radius * 2);
-        let y = y + (radius * 2);
+        let cx = center_x as i32;
+        let cy = center_y as i32;
 
-        let mut f = 1 - radius as i32;
-        let mut ddf_x = 1;
-        let mut ddf_y = -2 * radius as i32;
+        let radius = radius as i32;
+        // We start from (0, -radius) relative to the circle
+        let mut x = 0;
+        let mut y = -radius;
 
-        let mut xx = 0u32;
-        let mut yy = radius;
+        let mut p = -radius;
 
-        while xx < yy {
-            if f >= 0 {
-                yy -= 1;
-                ddf_y += 2;
-                f += ddf_y;
+        // let mut put_pixel = |x: i32, y: i32| self.draw_pixel(x as u32, y as u32, fill_color, on_bg);
+        let mut put_pixels_hor = |x0: i32, x1: i32, y: i32| {
+            self.draw_line(x0 as u32, y as u32, x1 as u32, y as u32, fill_color, on_bg)
+        };
+        while x < -y {
+            // The midpoint is outside of the circle
+            if p >= 0
+            /* more accurate, instead of using floating point we use >= instead of > */
+            {
+                y += 1;
+                p += 2 * (x + y) + 1
+            } else {
+                p += 2 * x + 1
             }
 
-            xx += 1;
-            ddf_x += 2;
-            f += ddf_x;
+            put_pixels_hor(cx + x, cx - x, cy + y);
+            put_pixels_hor(cx + x, cx - x, cy - y);
 
-            // Bottom Right corner
-            self.draw_pixel(x + xx - radius, y + yy - radius, border_color, on_bg);
-            self.draw_pixel(x + yy - radius, y + xx - radius, border_color, on_bg);
-            // Top Right corner
-            self.draw_pixel(x + xx - radius, y - yy - radius, border_color, on_bg);
-            self.draw_pixel(x + yy - radius, y - xx - radius, border_color, on_bg);
-            // Bottom Left corner
-            self.draw_pixel(x - xx - radius, y + yy - radius, border_color, on_bg);
-            self.draw_pixel(x - yy - radius, y + xx - radius, border_color, on_bg);
-            // Top Left corner
-            self.draw_pixel(x - xx - radius, y - yy - radius, border_color, on_bg);
-            self.draw_pixel(x - yy - radius, y - xx - radius, border_color, on_bg);
+            put_pixels_hor(cx + y, cx - y, cy + x);
+            put_pixels_hor(cx + y, cx - y, cy - x);
+
+            x += 1;
         }
     }
 
