@@ -338,6 +338,10 @@ impl GlobalWindowDeatached {
             __2: 0,
         }
     }
+
+    pub const fn win_id(&self) -> u16 {
+        self.id
+    }
 }
 
 /// A globally broadcasted event when a global window is focused.
