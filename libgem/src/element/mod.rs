@@ -9,7 +9,7 @@ pub mod container;
 pub mod image;
 pub mod text_box;
 
-pub(crate) const fn is_inside_rect(
+pub const fn is_inside_rect(
     x: u32,
     y: u32,
     rect_x: u32,
