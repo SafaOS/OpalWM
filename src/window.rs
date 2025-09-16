@@ -1077,3 +1077,12 @@ pub fn redraw() {
             .damage_redraw();
     }
 }
+
+/// Set the window with the id `win_id` as focused,
+/// handles everything including sending events and damage, and reordering the Z-list.
+pub fn focus(win_id: WinID) -> bool {
+    WINDOWS
+        .lock()
+        .expect("Failed to acquire lock on Windows while focusing window")
+        .set_focused(win_id)
+}

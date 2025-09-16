@@ -254,6 +254,21 @@ impl DamageWindow {
     }
 }
 
+/// ask the WM to focus either a global window or a window belonging to self
+#[derive(Debug, Clone, Copy, Encode, Decode, PartialEq)]
+pub struct FocusWindow {
+    target: u16,
+}
+
+impl FocusWindow {
+    pub const fn new(target: u16) -> Self {
+        Self { target }
+    }
+    pub const fn win_id(&self) -> u16 {
+        self.target
+    }
+}
+
 /// The kind of request sent to the WM from a client
 #[derive(Debug, Clone, Copy, Encode, Decode)]
 #[repr(u32)]
@@ -269,6 +284,7 @@ pub enum RequestKind {
     PreloadIcon(PreloadIcon),
     LoadIcon(LoadIcon),
     GetWindowInfo(GetWindowInfo),
+    FocusWindow(FocusWindow),
 }
 
 #[derive(Encode, Decode, Clone, Copy, Debug)]

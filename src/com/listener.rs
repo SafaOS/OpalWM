@@ -188,6 +188,13 @@ fn handle_connect(connection: UnixSockConnection) {
                         None => Err(ResponseError::UnknownWindow),
                     }
                 }
+                RequestKind::FocusWindow(req) => {
+                    if !window::focus(req.win_id()) {
+                        Err(ResponseError::UnknownWindow)
+                    } else {
+                        Ok(OkResponse::Success)
+                    }
+                }
             },
             Err(read_error) => match read_error {
                 ReadError::ParseErr(e) => Err(ResponseError::from(e)),
