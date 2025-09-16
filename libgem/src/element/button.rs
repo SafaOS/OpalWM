@@ -179,7 +179,7 @@ impl<RootCanvas: DrawingCanvas, G: Gem> Element<RootCanvas, G> for Button<G> {
         x: u32,
         y: u32,
         bg_color: Pixel,
-    ) -> Option<(u32, u32)> {
+    ) -> (Option<(u32, u32)>, Option<(u32, u32)>) {
         let width = self.style.max_width;
         let height = self.style.max_height;
 
@@ -214,7 +214,7 @@ impl<RootCanvas: DrawingCanvas, G: Gem> Element<RootCanvas, G> for Button<G> {
             None,
         );
         self.need_redraw = false;
-        Some((x + width, y + height))
+        (Some((x, y)), Some((x + width, y + height)))
     }
 
     fn needs_redraw(&self) -> bool {

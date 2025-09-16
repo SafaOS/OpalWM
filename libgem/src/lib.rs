@@ -302,13 +302,16 @@ impl<G: Gem> App<G> {
         let mut handle_container =
             |container: &mut Container<Window, G>, start_x: u32, start_y: u32, bg_color: Pixel| {
                 if container.needs_redraw() {
-                    let end = container.draw(&mut self.cont.root, start_x, start_y, bg_color);
+                    let (start, end) =
+                        container.draw(&mut self.cont.root, start_x, start_y, bg_color);
+
+                    let (redraw_x, redraw_y) = start.unwrap_or((start_x, start_y));
 
                     if let Some((end_x, end_y)) = end {
-                        let width = end_x - start_x;
-                        let height = end_y - start_y;
+                        let width = end_x - redraw_x;
+                        let height = end_y - redraw_y;
 
-                        self.cont.root.redraw(start_x, start_y, width, height);
+                        self.cont.root.redraw(redraw_x, redraw_y, width, height);
                     }
                 }
             };

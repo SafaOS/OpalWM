@@ -134,7 +134,13 @@ impl<Canvas: DrawingCanvas, G: Gem> Element<Canvas, G> for TextBox {
         self.text.biggest_line_width() as u32
     }
 
-    fn draw(&mut self, canvas: &mut Canvas, x: u32, y: u32, bg_color: Pixel) -> Option<(u32, u32)> {
+    fn draw(
+        &mut self,
+        canvas: &mut Canvas,
+        x: u32,
+        y: u32,
+        bg_color: Pixel,
+    ) -> (Option<(u32, u32)>, Option<(u32, u32)>) {
         let max_x = x + self.styles.max_width as u32;
         let max_y = y + self.styles.max_height as u32;
 
@@ -149,7 +155,7 @@ impl<Canvas: DrawingCanvas, G: Gem> Element<Canvas, G> for TextBox {
         );
         canvas.draw_text(x, y, max_x, max_y, &mut self.text, Some(bg_color));
         self.needs_redraw = false;
-        Some((max_x, max_y))
+        (Some((x, y)), Some((max_x, max_y)))
     }
 
     fn needs_redraw(&self) -> bool {

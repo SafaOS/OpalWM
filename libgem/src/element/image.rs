@@ -54,7 +54,13 @@ impl Image {
 }
 
 impl<Canvas: DrawingCanvas, G: Gem> Element<Canvas, G> for Image {
-    fn draw(&mut self, canvas: &mut Canvas, x: u32, y: u32, bg_color: Pixel) -> Option<(u32, u32)> {
+    fn draw(
+        &mut self,
+        canvas: &mut Canvas,
+        x: u32,
+        y: u32,
+        bg_color: Pixel,
+    ) -> (Option<(u32, u32)>, Option<(u32, u32)>) {
         let width = self.width();
         let height = self.height();
 
@@ -73,7 +79,7 @@ impl<Canvas: DrawingCanvas, G: Gem> Element<Canvas, G> for Image {
         }
 
         self.needs_redraw = false;
-        Some((x + width as u32, y + height as u32))
+        (Some((x, y)), Some((x + width as u32, y + height as u32)))
     }
 
     fn needs_redraw(&self) -> bool {

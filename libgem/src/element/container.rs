@@ -211,15 +211,16 @@ impl<Canvas: DrawingCanvas + 'static, G: Gem> Element<Canvas, G> for Container<C
         start_x: u32,
         start_y: u32,
         bg_color: Pixel,
-    ) -> Option<(u32, u32)> {
+    ) -> (Option<(u32, u32)>, Option<(u32, u32)>) {
         let mut draw_ended_at = None;
+        let mut draw_started_at = None;
 
         let elements_changed = self.elements_changed;
         self.layout_elements(start_x, start_y, |ele, draw_x, draw_y| {
             if elements_changed || ele.needs_redraw() {
-                let results = ele.draw(canvas, draw_x, draw_y, bg_color);
+                let (draw_start, draw_end) = ele.draw(canvas, draw_x, draw_y, bg_color);
 
-                match (results, draw_ended_at) {
+                match (draw_end, draw_ended_at) {
                     (None, None) => (),
                     (Some((x, y)), Some((x2, y2))) => {
                         draw_ended_at = Some((x.max(x2), y.max(y2)));
@@ -229,11 +230,20 @@ impl<Canvas: DrawingCanvas + 'static, G: Gem> Element<Canvas, G> for Container<C
                     }
                     (None, Some(_)) => {}
                 }
+
+                match (draw_start, draw_started_at) {
+                    (None, None) => (),
+                    (Some((x, y)), Some((x2, y2))) => {
+                        draw_started_at = Some((x.min(x2), y.min(y2)));
+                    }
+                    (s @ Some(_), None) => draw_started_at = s,
+                    (None, Some(_)) => {}
+                }
             }
         });
 
         self.elements_changed = false;
-        draw_ended_at
+        (draw_started_at, draw_ended_at)
     }
 
     fn needs_redraw(&self) -> bool {

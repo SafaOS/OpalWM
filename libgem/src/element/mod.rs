@@ -31,7 +31,7 @@ pub trait Element<RootCanvas: DrawingCanvas, G: Gem>: Any {
     fn container_height(&self) -> u32;
 
     /// Draws the element onto the canvas, given a relative position of the element from the canvas.
-    /// Returns either None or the end position of the element as if it was a rectangle, and that is (x, y) where x is the rightmost x coordinate and y is the lowest y coordinate of the element.
+    /// Returns either None or the start and then end position of the element as if it was a rectangle, and that is (x, y) where x is the rightmost x coordinate and y is the lowest y coordinate of the element.
     ///
     /// The `bg_color` parameter specifies the background color that the element is supposed to draw on, before drawing the element you likely want to draw the background color without alpha-blending first.
     fn draw(
@@ -40,7 +40,7 @@ pub trait Element<RootCanvas: DrawingCanvas, G: Gem>: Any {
         x: u32,
         y: u32,
         bg_color: Pixel,
-    ) -> Option<(u32, u32)>;
+    ) -> (Option<(u32, u32)>, Option<(u32, u32)>);
     /// Returns true if the element needs to be redrawn.
     fn needs_redraw(&self) -> bool;
     /// Handles an event for the element, given a relative position of the element from the canvas.
