@@ -78,6 +78,7 @@ pub enum BMPParseError {
     Unsupported(&'static str),
 }
 
+#[derive(Debug, Clone, Copy)]
 /// A Parsed BMP Image
 pub struct BMPImage<'a> {
     bitmasks: BMPBitmasks,
@@ -85,6 +86,7 @@ pub struct BMPImage<'a> {
     height: u32,
     bpp: u16,
     pixels: &'a [u8],
+    raw_bytes: &'a [u8],
 }
 
 impl<'a> BMPImage<'a> {
@@ -180,6 +182,7 @@ impl<'a> BMPImage<'a> {
         let pixels =
             &slice[header.pixels_off as usize..(header.pixels_off + pixels_bytes) as usize];
         Ok(Self {
+            raw_bytes: slice,
             bitmasks,
             width: width as u32,
             height: height as u32,
@@ -196,6 +199,10 @@ impl<'a> BMPImage<'a> {
             row_off: self.height.saturating_sub(1) as usize,
             col_off: 0,
         }
+    }
+
+    pub const fn as_raw_bytes(&self) -> &[u8] {
+        self.raw_bytes
     }
 }
 
