@@ -5,9 +5,11 @@ pub mod text;
 
 pub use libopal;
 pub use opal_img as image;
+use opal_img::BMPImage;
 
 use libopal::{
     DequeuedEvents,
+    icon::IconID,
     window::{Pixel, Window, WindowFlags},
 };
 
@@ -48,6 +50,7 @@ pub struct GemConfig<'a> {
     height: u32,
     custom_position: Option<(i32, i32)>,
     body_styles: ContainerStyles,
+    icon: Option<BMPImage<'a>>,
 }
 
 impl<'a> GemConfig<'a> {
@@ -63,6 +66,7 @@ impl<'a> GemConfig<'a> {
             width,
             height,
             custom_position: None,
+            icon: None,
         }
     }
 
@@ -119,9 +123,19 @@ impl<'a> GemConfig<'a> {
         self
     }
 
+    pub const fn with_icon(mut self, icon: BMPImage<'a>) -> Self {
+        self.icon = Some(icon);
+        self
+    }
+
     fn build_container<G: Gem>(self) -> RootContainer<G> {
+        let icon_id = self
+            .icon
+            .map(|image| libopal::icon::preload_icon(image.as_raw_bytes()));
+
         match self.border_color {
             Some(color) => RootContainer::new_with_border(
+                icon_id,
                 self.win_flags,
                 self.width,
                 self.height,
@@ -133,6 +147,7 @@ impl<'a> GemConfig<'a> {
                 self.body_styles,
             ),
             None => RootContainer::new_without_border(
+                icon_id,
                 self.name,
                 self.win_flags,
                 self.width,
@@ -168,6 +183,7 @@ impl<G: Gem> RootContainer<G> {
     const TRANSPARENT: Pixel = Pixel::NONE;
 
     fn new_with_border(
+        icon: Option<IconID>,
         flags: WindowFlags,
         width: u32,
         height: u32,
@@ -183,7 +199,7 @@ impl<G: Gem> RootContainer<G> {
         let window_x = Self::CORNER_RADIUS / 2;
         let window_y = Self::TITLE_HEIGHT + 2;
 
-        let mut win = Window::create(name, flags, real_width, real_height, custom_position, None);
+        let mut win = Window::create(name, flags, real_width, real_height, custom_position, icon);
 
         win.draw_round_rect(
             0,
@@ -250,6 +266,7 @@ impl<G: Gem> RootContainer<G> {
     }
 
     fn new_without_border(
+        icon: Option<IconID>,
         name: &str,
         win_flags: WindowFlags,
         width: u32,
@@ -261,7 +278,7 @@ impl<G: Gem> RootContainer<G> {
         let window_x = 0;
         let window_y = 0;
 
-        let win = Window::create(name, win_flags, width, height, custom_position, None);
+        let win = Window::create(name, win_flags, width, height, custom_position, icon);
 
         Self {
             title_bar: None,
