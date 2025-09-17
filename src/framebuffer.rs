@@ -43,8 +43,8 @@ fn interpret_cords(
         height_within
     };
 
-    let width = act_width.min(self_width - x);
-    let height = act_height.min(self_height - y);
+    let width = act_width.min(self_width.saturating_sub(x));
+    let height = act_height.min(self_height.saturating_sub(y));
     ((x, y), (start_col, start_row), (width, height))
 }
 
