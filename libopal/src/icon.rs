@@ -1,6 +1,7 @@
-use opal_abi::com::request::{IconID, LoadIcon, PreloadIcon, RequestKind};
+use opal_abi::com::request::{LoadIcon, PreloadIcon, RequestKind};
 
 use crate::send_request;
+pub use opal_abi::com::request::IconID;
 
 /// Requests the WM to preload an icon returning it's ID
 /// should be in BMP format

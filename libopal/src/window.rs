@@ -1,6 +1,9 @@
 use std::ptr::NonNull;
 
-use opal_abi::com::request::{CreateWindow, DamageWindow, FocusWindow, IconID, RequestKind};
+use opal_abi::com::{
+    request::{CreateWindow, DamageWindow, FocusWindow, GetWindowInfo, IconID, RequestKind},
+    response::WindowInfo,
+};
 use safa_api::{
     abi::mem::{MemMapFlags, ShmFlags},
     syscalls::types::Ri,
@@ -114,4 +117,12 @@ impl Window {
 /// Requests the WM to put a given window in focus
 pub fn focus_window(win_id: u16) {
     send_request!(RequestKind::FocusWindow(FocusWindow::new(win_id)), Success);
+}
+
+/// Returns Info about a given window
+pub fn window_info(win_id: u16) -> WindowInfo {
+    send_request!(
+        RequestKind::GetWindowInfo(GetWindowInfo::new(win_id)),
+        WindowInfo(i)
+    )
 }
