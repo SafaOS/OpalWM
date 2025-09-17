@@ -35,7 +35,7 @@ fn spawn_hello() {
     }
 }
 
-fn spawn_terminal() {
+pub fn spawn_terminal() {
     if let Err(err) = Command::new("sys:/bin/terminal")
         .stdout(Stdio::from(logging::console_clone()))
         .stderr(Stdio::from(logging::console_clone()))
@@ -255,7 +255,6 @@ pub fn listen() -> ! {
 
     spawn_hello();
     spawn_desktop();
-    spawn_terminal();
 
     loop {
         let connection = listener

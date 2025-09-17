@@ -1,3 +1,5 @@
+use safa_api::abi::input::KeyCode;
+
 use crate::com::listener;
 use crate::kbd::Keyboard;
 use crate::logging::disable_terminal_logging;
@@ -22,7 +24,17 @@ fn main_loop() {
     let mut cursor = MiceCursor::create();
     loop {
         let pressed_keys = keyboard.handle_events();
-        cursor.handle_event(pressed_keys.unwrap_or(keyboard.current_pressed_keys()));
+        let curr_pressed_keys = pressed_keys.unwrap_or(keyboard.current_pressed_keys());
+        if let Some(keys) = pressed_keys {
+            if keys.contains(KeyCode::Shift) && keys.contains(KeyCode::Ctrl) {
+                if keys.contains(KeyCode::KeyT) {
+                    listener::spawn_terminal();
+                } else if keys.contains(KeyCode::KeyE) {
+                    std::process::exit(0);
+                }
+            }
+        }
+        cursor.handle_event(curr_pressed_keys);
         redraw();
     }
 }
