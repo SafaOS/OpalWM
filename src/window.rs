@@ -922,23 +922,23 @@ impl Windows {
         };
 
         // FIXME: handle all kinds of windows after adding event susbscribing.
-        let results = self.normal_windows.iter().rev().find_map(|win_id| {
+        let results = self.overlay_windows.iter().rev().find_map(|win_id| {
             let (win, _) = self
                 .windows
                 .get(win_id)
                 .expect("Window wasn't removed from the Z-ordering when it's ID was deallocated");
             region
                 .overlaps_with(win)
-                .map(|point| (*win_id, WindowKind::Normal, point))
+                .map(|point| (*win_id, WindowKind::Overlay, point))
         });
         results.or_else(|| {
-            self.overlay_windows.iter().rev().find_map(|win_id| {
+            self.normal_windows.iter().rev().find_map(|win_id| {
                 let (win, _) = self.windows.get(win_id).expect(
                     "Window wasn't removed from the Z-ordering when it's ID was deallocated",
                 );
                 region
                     .overlaps_with(win)
-                    .map(|point| (*win_id, WindowKind::Overlay, point))
+                    .map(|point| (*win_id, WindowKind::Normal, point))
             })
         })
     }
