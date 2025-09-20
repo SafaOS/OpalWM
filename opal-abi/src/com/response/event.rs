@@ -241,6 +241,7 @@ bitflags! {
         const ALT = 1 << 1;
         const SHIFT = 1 << 2;
         const SUPER = 1 << 3;
+        const CAPSLOCK = 1 << 4;
     }
 }
 

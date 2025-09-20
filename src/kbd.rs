@@ -70,6 +70,9 @@ impl PressedKeys {
         if self.contains(KeyCode::Shift) {
             modifiers = modifiers.union(KeyModifiers::SHIFT);
         }
+        if self.contains(KeyCode::CapsLock) {
+            modifiers = modifiers.union(KeyModifiers::CAPSLOCK);
+        }
         modifiers
     }
 }
