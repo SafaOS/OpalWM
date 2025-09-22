@@ -1,3 +1,5 @@
+use std::thread;
+
 use safa_api::abi::input::KeyCode;
 
 use crate::com::listener;
@@ -36,6 +38,7 @@ fn main_loop() {
         }
         cursor.handle_event(curr_pressed_keys);
         redraw();
+        thread::yield_now();
     }
 }
 fn main() {
