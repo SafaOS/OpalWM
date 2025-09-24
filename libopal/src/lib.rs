@@ -9,7 +9,7 @@ use opal_abi::com::{
     request::{Request, RequestKind},
     response::{Response, ScreenInfo, event::WindowEvent},
 };
-use safa_api::sockets::UnixSockConnection;
+use safa_api::{sockets::UnixSockConnection, syscalls::types::Ri};
 
 pub mod icon;
 pub mod window;
@@ -19,7 +19,7 @@ pub use opal_abi::com::response::event::Event;
 
 static EVENTS_QUEUE: Mutex<Vec<WindowEvent>> = Mutex::new(Vec::new());
 
-pub(crate) static WM_CONNECTION: LazyLock<Mutex<UnixSockConnection>> = LazyLock::new(|| {
+static WM_INFO: LazyLock<(Ri, Mutex<UnixSockConnection>)> = LazyLock::new(|| {
     use safa_api::sockets::{SockKind, UnixSockConnectionBuilder};
     let addr = opal_abi::CONNECT_ABSTRACT_ADDR;
     let mut builder = UnixSockConnectionBuilder::from_abstract_path(addr).unwrap();
@@ -27,9 +27,16 @@ pub(crate) static WM_CONNECTION: LazyLock<Mutex<UnixSockConnection>> = LazyLock:
     builder.set_type(SockKind::SeqPacket);
     builder
         .connect()
-        .map(|k| Mutex::new(k))
+        .map(|k| (k.ri(), Mutex::new(k)))
         .unwrap_or_else(|_| panic!("Failed to establish connection with the Opal WM at {addr}"))
 });
+
+pub(crate) static WM_CONNECTION: LazyLock<&Mutex<UnixSockConnection>> =
+    LazyLock::new(|| &WM_INFO.1);
+
+pub fn connection_resource_id() -> Ri {
+    WM_INFO.0
+}
 
 #[macro_export]
 macro_rules! send_request {
@@ -249,6 +256,36 @@ pub fn dequeue_events_non_blocking() -> io::Result<Option<DequeuedEvents>> {
         other => unreachable!(
             "Shouldn't get any other kind of responses while waiting for events, got: {other:#?}"
         ),
+    }
+}
+
+pub use safa_api;
+pub use safa_api::abi as safa_abi;
+
+/// Polls the WM for events, returning the events if any are available, also polls additional user-supplied resources
+/// given in the `entries` slice, the first of the slice is going to be reused for WM's resource, and therefore the len must be at least 1.
+pub fn dequeue_events_and_poll(
+    entries: &mut [safa_abi::poll::PollEntry],
+) -> io::Result<Option<DequeuedEvents>> {
+    assert!(
+        !entries.is_empty(),
+        "First entry is going to be reused for WM"
+    );
+
+    entries[0] = safa_abi::poll::PollEntry::new(
+        connection_resource_id(),
+        safa_abi::poll::PollEvents::DATA_AVAILABLE,
+    );
+    safa_api::syscalls::io::poll_resources(entries, None)
+        .map_err(|err| safa_api::errors::into_io_error(err))?;
+
+    if entries[0]
+        .returned_events()
+        .contains(safa_abi::poll::PollEvents::DATA_AVAILABLE)
+    {
+        dequeue_events_non_blocking()
+    } else {
+        Ok(None)
     }
 }
 
