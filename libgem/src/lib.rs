@@ -4,12 +4,16 @@ pub mod element;
 pub mod text;
 
 pub use libopal;
+pub use libopal::safa_abi;
+pub use libopal::safa_api;
+
 pub use opal_img as image;
 use opal_img::BMPImage;
 
 use libopal::{
     DequeuedEvents,
     icon::IconID,
+    safa_abi::poll::PollEntry,
     window::{Pixel, Window, WindowFlags},
 };
 
@@ -396,6 +400,20 @@ impl<G: Gem> App<G> {
     /// which is obviously better to use except if you really don't want to block.
     pub fn try_handle_events(&mut self) -> Option<DequeuedEvents> {
         let events = libopal::dequeue_events_non_blocking().expect("Failed to get current events");
+        if let Some(ref events) = events {
+            self.handle_events(events);
+        }
+        events
+    }
+
+    /// like [`handle_events_blocking`] and [`try_handle_events`], but it polls (blocks) for the WM's events queue and
+    /// multiple other supplied user resources, If any of the resources are ready (according to the I/O events you are polling for), this method will return, with the dequeued events if any.
+    pub fn try_handle_events_with_poll(
+        &mut self,
+        entries: &mut [PollEntry],
+    ) -> Option<DequeuedEvents> {
+        let events =
+            libopal::dequeue_events_and_poll(entries).expect("Failed to get current events");
         if let Some(ref events) = events {
             self.handle_events(events);
         }
