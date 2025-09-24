@@ -281,6 +281,13 @@ pub fn dequeue_events_and_poll(
 
     if entries[0]
         .returned_events()
+        .contains(safa_abi::poll::PollEvents::DISCONNECTED)
+    {
+        std::process::exit(0);
+    }
+
+    if entries[0]
+        .returned_events()
         .contains(safa_abi::poll::PollEvents::DATA_AVAILABLE)
     {
         dequeue_events_non_blocking()
