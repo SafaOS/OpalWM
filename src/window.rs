@@ -24,7 +24,10 @@ use opal_abi::com::{
 };
 use opal_img::bmp::BMPImage;
 use rustc_hash::{FxBuildHasher, FxHashMap};
-use safa_api::abi::mem::{MemMapFlags, ShmFlags};
+use safa_api::{
+    abi::mem::{MemMapFlags, ShmFlags},
+    syscalls::types::Ri,
+};
 
 use crate::{
     REALLY_VERBOSE,
@@ -122,9 +125,9 @@ pub struct Window {
     // TODO: Implement a good shared memory wrapper to drop this automatically.
     shm_key: usize,
     // TODO: Implement a good shared memory or a resource wrapper to drop this automatically.
-    shm_ri: usize,
+    shm_ri: Ri,
     // TODO: Implement a good memory map or a resource wrapper to drop this automatically.
-    mmap_ri: usize,
+    mmap_ri: Ri,
     com_pipe: Option<Arc<ClientComPipe>>,
     damage_reason: Option<WindowDamageReason>,
 
@@ -217,7 +220,7 @@ impl Window {
         width: usize,
         height: usize,
         fill_pixel: Pixel,
-    ) -> (NonNull<[Pixel]>, usize, usize, usize) {
+    ) -> (NonNull<[Pixel]>, Ri, Ri, usize) {
         let pixels_required = width * height;
         let bytes_required = pixels_required * size_of::<Pixel>();
         let pages_required = bytes_required.div_ceil(4096);
@@ -330,8 +333,8 @@ impl Window {
         pos_y: isize,
         width: usize,
         height: usize,
-        shm_ri: usize,
-        mmap_ri: usize,
+        shm_ri: Ri,
+        mmap_ri: Ri,
         shm_key: usize,
         pixels: NonNull<[Pixel]>,
         flags: WindowFlags,

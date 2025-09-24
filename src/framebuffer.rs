@@ -95,7 +95,7 @@ static FRAMEBUFFER_MEMMAP: LazyLock<(FramebufferDevInfo, Ri, (usize, usize))> =
             core::ptr::null(),
             bytes_required.div_ceil(4096),
             0,
-            Some(fb_file.as_raw_resource()),
+            Some(fb_file.as_raw_resource() as Ri),
             None,
             MemMapFlags::WRITE,
         )
