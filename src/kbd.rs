@@ -122,7 +122,7 @@ impl Keyboard {
         let mut pressed_keys = self.last_keystate;
 
         for event in events {
-            let mut event_to_send = None;
+            let event_to_send;
             macro_rules! prepare_send {
                 ($event_kind: ident) => {
                     event_to_send = Some(libopal::event::Event::Key(libopal::event::KeyEvent {
@@ -140,15 +140,15 @@ impl Keyboard {
                     let was_pressed = pressed_keys.contains(event.code);
                     if !was_pressed {
                         pressed_keys.add(event.code);
-                        prepare_send!(Press);
                     }
+                    prepare_send!(Press);
                 }
                 KeyEventKind::Release => {
                     let was_pressed = pressed_keys.contains(event.code);
                     if was_pressed {
                         pressed_keys.remove(event.code);
-                        prepare_send!(Release);
                     }
+                    prepare_send!(Release);
                 }
             }
 
