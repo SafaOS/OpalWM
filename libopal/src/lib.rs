@@ -7,7 +7,7 @@ use std::{
 use opal_abi::com::{
     packet::MAX_PACKET_SIZE,
     request::{Request, RequestKind},
-    response::{Response, ScreenInfo, event::WindowEvent},
+    response::{event::WindowEvent, Response, ScreenInfo},
 };
 use safa_api::{sockets::UnixSockConnection, syscalls::types::Ri};
 
@@ -20,11 +20,11 @@ pub use opal_abi::com::response::event::Event;
 static EVENTS_QUEUE: Mutex<Vec<WindowEvent>> = Mutex::new(Vec::new());
 
 static WM_INFO: LazyLock<(Ri, Mutex<UnixSockConnection>)> = LazyLock::new(|| {
-    use safa_api::sockets::{SockKind, UnixSockConnectionBuilder};
+    use safa_api::sockets::{UnixSockConnectionBuilder, UnixSockKind};
     let addr = opal_abi::CONNECT_ABSTRACT_ADDR;
     let mut builder = UnixSockConnectionBuilder::from_abstract_path(addr).unwrap();
 
-    builder.set_type(SockKind::SeqPacket);
+    builder.set_type(UnixSockKind::SeqPacket);
     builder
         .connect()
         .map(|k| (k.ri(), Mutex::new(k)))

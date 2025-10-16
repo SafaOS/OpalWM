@@ -8,19 +8,19 @@ use libopal::window::WindowFlags;
 use opal_abi::com::{
     request::RequestKind,
     response::{
-        CreateWindowResp, IconData, IconPreloaded, OkResponse, Response, ScreenInfo, WindowInfo,
-        error::ResponseError,
+        error::ResponseError, CreateWindowResp, IconData, IconPreloaded, OkResponse, Response,
+        ScreenInfo, WindowInfo,
     },
 };
-use safa_api::sockets::{SockKind, UnixListenerBuilder, UnixSockConnection};
+use safa_api::sockets::{UnixListenerBuilder, UnixSockConnection, UnixSockKind};
 
 use crate::{
     com::{ClientComPipe, ClientComSender, ReadError},
     dlog, elog,
-    framebuffer::{FB_INFO, Pixel},
+    framebuffer::{Pixel, FB_INFO},
     icons::icon_size,
     log, logging,
-    window::{self, WINDOWS, Window, WindowKind},
+    window::{self, Window, WindowKind, WINDOWS},
     wlog,
 };
 
@@ -247,7 +247,7 @@ pub fn listen() -> ! {
     let addr = opal_abi::CONNECT_ABSTRACT_ADDR;
     let mut listener_builder = UnixListenerBuilder::from_abstract_path(addr).unwrap();
     listener_builder
-        .set_type(SockKind::SeqPacket)
+        .set_type(UnixSockKind::SeqPacket)
         .set_backlog(usize::MAX);
 
     let listener = listener_builder.bind().expect("Failed to bind a listener");
