@@ -133,9 +133,9 @@ impl<'a> GemConfig<'a> {
     }
 
     fn build_container<G: Gem>(self) -> RootContainer<G> {
-        let icon_id = self
-            .icon
-            .map(|image| libopal::icon::preload_icon(image.as_raw_bytes()));
+        let icon_id = self.icon.map(|image| {
+            libopal::icon::preload_icon(image.as_raw_bytes()).expect("Failed to preload Icon")
+        });
 
         match self.border_color {
             Some(color) => RootContainer::new_with_border(

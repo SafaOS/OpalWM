@@ -7,7 +7,7 @@ use std::{
 use opal_abi::com::{
     packet::MAX_PACKET_SIZE,
     request::{Request, RequestKind},
-    response::{event::WindowEvent, Response, ScreenInfo},
+    response::{Response, ScreenInfo, event::WindowEvent},
 };
 use safa_api::{sockets::UnixSockConnection, syscalls::types::Ri};
 
@@ -39,7 +39,7 @@ pub fn connection_resource_id() -> Ri {
 }
 
 #[macro_export]
-macro_rules! send_request {
+macro_rules! send_request_and_get {
     ($single: expr, $expected: ident $(( $capture: ident ))?) => {{
         let req = $single;
         let results = $crate::send_request_single(req).expect("failed to send request");
@@ -47,15 +47,16 @@ macro_rules! send_request {
             $crate::Response::Ok(o) => {
                 match o {
                     ::opal_abi::com::response::OkResponse::$expected$(($capture))? => {
-                        $($capture)?
+                        Ok({$($capture)?})
                     }
                     o => panic!("Unexpected response: {o:#?}, expected: {} for request: {:#?}", stringify!($expected), req)
                 }
             }
-            $crate::Response::Err(e) => panic!("Error sending request: {e:#?}"),
+            $crate::Response::Err(e) => Err(e),
             $crate::Response::Event(_) => unreachable!(),
         }
     }};
+
     ($req: expr, $expected: ident $(( $capture: ident ))?, $payload: expr) => {{
         let req = $req;
         let payload = $payload;
@@ -64,15 +65,16 @@ macro_rules! send_request {
             $crate::Response::Ok(o) => {
                 match o {
                     ::opal_abi::com::response::OkResponse::$expected$(($capture))? => {
-                        $($capture)?
+                        Ok({$($capture)?})
                     }
                     o => panic!("Unexpected response: {o:#?}, expected: {} for request: {:#?}", stringify!($expected), req)
                 }
             }
-            $crate::Response::Err(e) => panic!("Error sending request: {e:#?}"),
+            $crate::Response::Err(e) => Err(e),
             $crate::Response::Event(_) => unreachable!(),
         }
     }};
+
 
     ($req: expr, $expected: ident $(( $capture: ident ))?, then read $am: expr) => {{
         let req = $req;
@@ -89,16 +91,31 @@ macro_rules! send_request {
                         if let Err(e) = $crate::wm_read_bytes(&mut connection, &mut bytes) {
                             panic!("Failed to read {amount} bytes from the WM, error: {e:#?}, as per request: {req:#?}");
                         }
-                        bytes
+                        Ok(bytes)
                     }
                     o => panic!("Unexpected response: {o:#?}, expected: {} for request: {:#?}", stringify!($expected), req)
                 }
             }
-            $crate::Response::Err(e) => panic!("Error sending request: {e:#?}"),
+            $crate::Response::Err(e) => Err(e),
             $crate::Response::Event(_) => unreachable!(),
         }
     }};
+}
 
+#[macro_export]
+macro_rules! send_request_or_panic {
+    ($single: expr, $expected: ident $(( $capture: ident ))?) => {{
+        match $crate::send_request_and_get!($single, $expected$(( $capture ))?) {
+            Ok(value) => value,
+            Err(e) => panic!("Unexpected error: {e:#?}"),
+        }
+    }};
+    ($req: expr, $expected: ident $(( $capture: ident ))?, $payload: expr) => {{
+        match $crate::send_request_and_get!($req, $expected$(( $capture ))?, $payload) {
+            Ok(value) => value,
+            Err(e) => panic!("Unexpected error: {e:#?}"),
+        }
+    }};
 }
 
 pub(crate) fn wm_read_bytes(wm: &mut UnixSockConnection, bytes: &mut [u8]) -> io::Result<()> {
@@ -299,11 +316,11 @@ pub fn dequeue_events_and_poll(
 /// Initializes the client that is going to communicate with the WM
 /// Panicks on failure
 pub fn init() {
-    send_request!(RequestKind::Ping, Success)
+    send_request_or_panic!(RequestKind::Ping, Success)
 }
 
 static SCREEN_INFO: LazyLock<ScreenInfo> = LazyLock::new(|| {
-    let info = send_request!(RequestKind::GetScreenInfo, ScreenInfo(i));
+    let info = send_request_or_panic!(RequestKind::GetScreenInfo, ScreenInfo(i));
     info
 });
 

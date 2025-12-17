@@ -2,14 +2,14 @@ use std::ptr::NonNull;
 
 use opal_abi::com::{
     request::{CreateWindow, DamageWindow, FocusWindow, GetWindowInfo, IconID, RequestKind},
-    response::WindowInfo,
+    response::{WindowInfo, error::ResponseError},
 };
 use safa_api::{
     abi::mem::{MemMapFlags, ShmFlags},
     syscalls::types::Ri,
 };
 
-use crate::send_request;
+use crate::{send_request_and_get, send_request_or_panic};
 pub use opal_abi::com::request::WindowFlags;
 pub use opal_abi::fb::Pixel;
 
@@ -45,7 +45,7 @@ impl Window {
     /// Redraws the window's pixels as a rectangle starting at (from_x, from_y) with the given width and height.
     pub fn redraw(&self, from_x: u32, from_y: u32, width: u32, height: u32) {
         let req = DamageWindow::new(self.win_id, from_x, from_y, width, height);
-        send_request!(RequestKind::DamageWindow(req), Success)
+        send_request_or_panic!(RequestKind::DamageWindow(req), Success)
     }
 
     #[inline(always)]
@@ -100,7 +100,7 @@ impl Window {
             request = request.with_pos(x, y);
         }
 
-        let window = send_request!(RequestKind::CreateWindow(request), WindowCreated(w));
+        let window = send_request_or_panic!(RequestKind::CreateWindow(request), WindowCreated(w));
 
         let id = window.window_id();
         let mut window = Self::new_inner(id, window.shm_key(), width, height);
@@ -114,15 +114,42 @@ impl Window {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Error that can occur when interacting with a window
+pub enum WindowError {
+    UnknownWindowID,
+}
+
 /// Requests the WM to put a given window in focus
-pub fn focus_window(win_id: u16) {
-    send_request!(RequestKind::FocusWindow(FocusWindow::new(win_id)), Success);
+pub fn focus_window(win_id: u16) -> Result<(), WindowError> {
+    send_request_and_get!(RequestKind::FocusWindow(FocusWindow::new(win_id)), Success).map_err(
+        |e| match e {
+            ResponseError::UnknownWindow => WindowError::UnknownWindowID,
+            ResponseError::InvalidData
+            | ResponseError::InvalidMagic
+            | ResponseError::InvalidRequestKind
+            | ResponseError::PacketTooShort
+            | ResponseError::InvalidUtf8
+            | ResponseError::UnknownFatalError
+            | ResponseError::UnknownIcon => panic!("Unexpected error: {:?}", e),
+        },
+    )
 }
 
 /// Returns Info about a given window
-pub fn window_info(win_id: u16) -> WindowInfo {
-    send_request!(
+pub fn window_info(win_id: u16) -> Result<WindowInfo, WindowError> {
+    send_request_and_get!(
         RequestKind::GetWindowInfo(GetWindowInfo::new(win_id)),
         WindowInfo(i)
     )
+    .map_err(|e| match e {
+        ResponseError::UnknownWindow => WindowError::UnknownWindowID,
+        ResponseError::InvalidData
+        | ResponseError::InvalidMagic
+        | ResponseError::InvalidRequestKind
+        | ResponseError::PacketTooShort
+        | ResponseError::InvalidUtf8
+        | ResponseError::UnknownFatalError
+        | ResponseError::UnknownIcon => panic!("Unexpected error: {:?}", e),
+    })
 }
