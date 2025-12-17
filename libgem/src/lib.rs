@@ -200,8 +200,8 @@ impl<G: Gem> RootContainer<G> {
     ) -> Self {
         let real_width = width + (Self::CORNER_RADIUS * 2);
         let real_height = height + Self::TITLE_HEIGHT + /* we draw 2 pixels after title */ 2 + /* border thickness */ 1;
-        let window_x = Self::CORNER_RADIUS / 2;
-        let window_y = Self::TITLE_HEIGHT + 2;
+        let window_x = Self::CORNER_RADIUS;
+        let window_y = Self::TITLE_HEIGHT + 1;
 
         let mut win = Window::create(name, flags, real_width, real_height, custom_position, icon);
 
