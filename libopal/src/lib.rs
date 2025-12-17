@@ -12,6 +12,7 @@ use opal_abi::com::{
 use safa_api::{sockets::UnixSockConnection, syscalls::types::Ri};
 
 pub mod icon;
+pub mod keys;
 pub mod window;
 
 pub use opal_abi::com::response::event;
