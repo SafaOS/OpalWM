@@ -8,8 +8,8 @@ use libopal::window::WindowFlags;
 use opal_abi::com::{
     request::RequestKind,
     response::{
-        error::ResponseError, CreateWindowResp, IconData, IconPreloaded, OkResponse, Response,
-        ScreenInfo, WindowInfo,
+        CreateWindowResp, IconData, IconPreloaded, OkResponse, Response, ScreenInfo, WindowInfo,
+        error::ResponseError,
     },
 };
 use safa_api::sockets::{UnixListenerBuilder, UnixSockConnection, UnixSockKind};
@@ -17,10 +17,10 @@ use safa_api::sockets::{UnixListenerBuilder, UnixSockConnection, UnixSockKind};
 use crate::{
     com::{ClientComPipe, ClientComSender, ReadError},
     dlog, elog,
-    framebuffer::{Pixel, FB_INFO},
+    framebuffer::{FB_INFO, Pixel},
     icons::icon_size,
     log, logging,
-    window::{self, Window, WindowKind, WINDOWS},
+    window::{self, WINDOWS, Window, WindowKind},
     wlog,
 };
 
@@ -58,7 +58,6 @@ fn spawn_desktop() {
 }
 
 fn write_response(sender: &mut ClientComSender, response: Response) -> Result<(), ()> {
-    dlog!("Writing a Response");
     if let Err(e) = sender.send_response(response) {
         elog!("Error writing to socket '{e}', disconnecting...");
         return Err(());
@@ -76,8 +75,6 @@ fn handle_connect(connection: UnixSockConnection) {
     let mut receiver = pipe.receiver();
 
     loop {
-        dlog!("Waiting for a Request");
-
         let response = match receiver.receive_request() {
             Ok(req) => match req.kind() {
                 RequestKind::CreateWindow(request) => match request.name() {

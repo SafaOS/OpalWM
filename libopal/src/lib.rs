@@ -29,7 +29,9 @@ static WM_INFO: LazyLock<(Ri, Mutex<UnixSockConnection>)> = LazyLock::new(|| {
     builder
         .connect()
         .map(|k| (k.ri(), Mutex::new(k)))
-        .unwrap_or_else(|_| panic!("Failed to establish connection with the Opal WM at {addr}"))
+        .unwrap_or_else(|e| {
+            panic!("Failed to establish connection with the Opal WM at {addr}: {e:#?}")
+        })
 });
 
 pub(crate) static WM_CONNECTION: LazyLock<&Mutex<UnixSockConnection>> =
