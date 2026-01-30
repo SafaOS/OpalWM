@@ -8,6 +8,7 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
+    task::Waker,
 };
 
 use indexmap::IndexSet;
@@ -206,7 +207,7 @@ impl Window {
         if let Some(com_pipe) = &self.com_pipe {
             if let Err(err) = com_pipe
                 .sender()
-                .send_response(Response::Event(WindowEvent::new(self_id, event)))
+                .send_response_raw(&Response::Event(WindowEvent::new(self_id, event)))
                 && err.kind() != ErrorKind::ConnectionAborted
                 && err.kind() != ErrorKind::ConnectionReset
             {
@@ -614,6 +615,7 @@ pub struct Windows {
     focused_window: Option<WinID>,
 
     damaged_regions_tmp: Vec<DamageRegion>,
+    awaiting_fix: Vec<Waker>,
 }
 
 impl Windows {
@@ -628,6 +630,7 @@ impl Windows {
             windows: HashMap::with_hasher(FxBuildHasher),
             window_ids: [0; 8],
             cursor: None,
+            awaiting_fix: Vec::new(),
         }
     }
 
@@ -752,6 +755,9 @@ impl Windows {
         }
 
         SHOULD_REDRAW.store(false, Ordering::Release);
+        for awaiting in self.awaiting_fix.drain(..) {
+            awaiting.wake();
+        }
     }
 
     /// Adds `x` to window with the ID  `win_id` x position and `y` to the window with the ID `win_id`'s Y position
@@ -958,10 +964,16 @@ impl Windows {
         y: usize,
         width: usize,
         height: usize,
+        waker: Option<&Waker>,
     ) -> Result<(), ()> {
         let (win, _) = self.windows.get_mut(&win_id).ok_or(())?;
         win.damage_within(x, y, width, height);
+
+        if let Some(waker) = waker {
+            self.awaiting_fix.push(waker.clone());
+        }
         self.signal_redraw();
+
         Ok(())
     }
 
@@ -1055,11 +1067,76 @@ pub fn damage_window(
     y: usize,
     width: usize,
     height: usize,
+    waker: Option<&Waker>,
 ) -> Result<(), ()> {
     WINDOWS
         .lock()
         .expect("Failed to acquire lock on Windows while damaging a Window")
-        .damage_window(win_id, x, y, width, height)
+        .damage_window(win_id, x, y, width, height, waker)
+}
+
+struct DamageWindowFuture {
+    win_id: WinID,
+    x: usize,
+    y: usize,
+    width: usize,
+    height: usize,
+    results: Option<()>,
+}
+
+impl Future for DamageWindowFuture {
+    type Output = Result<(), ()>;
+
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        if let Some(()) = self.results {
+            return std::task::Poll::Ready(Ok(()));
+        } else {
+            let waker = cx.waker();
+            let results = damage_window(
+                self.win_id,
+                self.x,
+                self.y,
+                self.width,
+                self.height,
+                Some(waker),
+            );
+
+            match results {
+                Err(e) => std::task::Poll::Ready(Err(e)),
+                Ok(o) => {
+                    self.results = Some(o);
+                    // Wait until task is awaken (FIXME: hopefully, this can be abused)
+                    std::task::Poll::Pending
+                }
+            }
+        }
+    }
+}
+
+/// Asynchoursly damages a window
+///
+/// same as [`damage_window`] but async.
+///
+/// Awaits window to be fixed.
+pub async fn damage_window_async(
+    win_id: WinID,
+    x: usize,
+    y: usize,
+    width: usize,
+    height: usize,
+) -> Result<(), ()> {
+    DamageWindowFuture {
+        width,
+        height,
+        x,
+        y,
+        win_id,
+        results: None,
+    }
+    .await
 }
 
 /// Whether we should redraw the screen
@@ -1072,12 +1149,15 @@ fn should_redraw() -> bool {
 
 /// Better called from a single thread at a time
 /// Redraws changed areas of the screen in case we need to
-pub fn redraw() {
+pub fn redraw() -> bool {
     if should_redraw() {
         WINDOWS
             .lock()
             .expect("Failed to acquire lock on Windows while redrawing")
             .damage_redraw();
+        true
+    } else {
+        false
     }
 }
 

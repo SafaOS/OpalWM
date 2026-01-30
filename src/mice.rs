@@ -75,7 +75,7 @@ impl MiceCursor {
     }
 
     /// Handles one mouse event if available
-    pub fn handle_event(&mut self, pressed_keys: PressedKeys) {
+    pub fn handle_event(&mut self, pressed_keys: PressedKeys) -> bool {
         const EVENTS_COUNT: usize = 1024;
 
         let mut event_bytes = [0u8; size_of::<MiceEvent>() * EVENTS_COUNT];
@@ -85,7 +85,7 @@ impl MiceCursor {
             .expect("Failed to read an event");
 
         if len == 0 {
-            return;
+            return false;
         }
 
         assert!(len.is_multiple_of(size_of::<MiceEvent>()));
@@ -212,5 +212,7 @@ impl MiceCursor {
                 MouseEventKind::Null => unreachable!(),
             }
         }
+
+        true
     }
 }

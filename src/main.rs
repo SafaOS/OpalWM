@@ -14,11 +14,13 @@ use crate::window::redraw;
 const REALLY_VERBOSE: bool = false;
 
 mod com;
+mod executor;
 mod framebuffer;
 mod icons;
 mod kbd;
 mod logging;
 mod mice;
+mod vtty;
 mod window;
 
 fn main_loop() {
@@ -36,8 +38,10 @@ fn main_loop() {
                 }
             }
         }
-        cursor.handle_event(curr_pressed_keys);
-        redraw();
+
+        if cursor.handle_event(curr_pressed_keys) {
+            redraw();
+        }
         thread::yield_now();
     }
 }
@@ -46,5 +50,5 @@ fn main() {
     disable_terminal_logging();
     framebuffer::clear();
     std::thread::spawn(main_loop);
-    listener::listen()
+    listener::listener_thread()
 }
