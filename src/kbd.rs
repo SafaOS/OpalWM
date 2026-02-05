@@ -10,7 +10,7 @@ use std::{
     io::{self, BufReader, Read},
 };
 
-use libopal::event::KeyModifiers;
+use libopal::defs::KeyModifiers;
 use safa_api::abi::input::{KeyCode, KeyEvent, KeyEventKind};
 
 use crate::window::WINDOWS;
@@ -125,12 +125,13 @@ impl Keyboard {
             let event_to_send;
             macro_rules! prepare_send {
                 ($event_kind: ident) => {
-                    event_to_send = Some(libopal::event::Event::Key(libopal::event::KeyEvent {
-                        kind: libopal::event::KeyEventKind::$event_kind,
-                        /* MUST BE KEPT IN SYNC */
-                        code: unsafe { core::mem::transmute(event.code) },
-                        modifiers: pressed_keys.get_modifiers(),
-                    }));
+                    event_to_send =
+                        Some(libopal::event::WindowEvent::Key(libopal::event::KeyEvent {
+                            kind: libopal::event::KeyEventKind::$event_kind,
+                            /* MUST BE KEPT IN SYNC */
+                            code: unsafe { core::mem::transmute(event.code as u16) },
+                            modifiers: pressed_keys.get_modifiers(),
+                        }));
                 };
             }
 

@@ -1,9 +1,6 @@
-use std::{
-    io::{self, Write},
-    sync::RwLock,
-};
+use std::sync::RwLock;
 
-use opal_abi::com::request::IconID;
+use opal_abi::defs::IconID;
 use slab::Slab;
 
 static ICON_STORAGE: RwLock<Slab<Vec<u8>>> = RwLock::new(Slab::new());
@@ -22,7 +19,8 @@ pub fn add_icon(data: Vec<u8>) -> IconID {
     IconID::new(id as u16).expect("Shall never happen")
 }
 
-pub fn load_icon_to(id: IconID, writer: &mut impl Write) -> io::Result<()> {
+/// Get an icon by its ID.
+pub fn get_icon<R>(id: IconID, and_then: impl FnOnce(&[u8]) -> R) -> Result<R, ()> {
     let storage = ICON_STORAGE
         .read()
         .expect("Failed to acquire read lock on the icon storage");
@@ -30,14 +28,5 @@ pub fn load_icon_to(id: IconID, writer: &mut impl Write) -> io::Result<()> {
     let Some(data) = storage.get(key) else {
         panic!("No such icon with id: {id} should have checked before reaching this")
     };
-    writer.write_all(&data)?;
-    Ok(())
-}
-
-pub fn icon_size(id: IconID) -> Option<usize> {
-    let storage = ICON_STORAGE
-        .read()
-        .expect("Failed to acquire read lock on the icon storage");
-    let key = id.get() as usize - 1;
-    storage.get(key).map(|v| v.len())
+    Ok(and_then(data))
 }

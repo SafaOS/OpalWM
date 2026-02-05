@@ -1,16 +1,19 @@
 use std::{
+    collections::HashMap,
     env,
-    io::{ErrorKind, Read},
+    io::ErrorKind,
     process::{Command, Stdio},
     sync::Arc,
 };
 
-use libopal::window::WindowFlags;
-use opal_abi::com::{
-    request::RequestKind,
-    response::{
-        CreateWindowResp, IconData, IconPreloaded, OkResponse, Response, ScreenInfo, WindowInfo,
-        error::ResponseError,
+use libopal::{defs::ShmKey, window::WindowFlags};
+use opal_abi::{
+    Name,
+    msg::{
+        CreateWindow, DestroyObject, FocusWindow, GetScreenInfo, GetWindowInfo, IconLoaded,
+        LoadIcon, NewSharedObject, Ping, PreloadIcon,
+        request::Request,
+        response::{IconPreloaded, Response, ResponseError, ScreenInfo, WindowCreated, WindowInfo},
     },
 };
 use safa_api::{
@@ -23,8 +26,8 @@ use crate::{
     com::{ClientComPipe, ClientComReceiver, ClientComSender, ReadError},
     dlog, elog, executor,
     framebuffer::{FB_INFO, Pixel},
-    icons::icon_size,
     log, logging,
+    shm::SharedObject,
     window::{self, WINDOWS, WinID, Window, WindowKind},
     wlog,
 };
@@ -70,56 +73,123 @@ async fn write_response(sender: &mut ClientComSender<'_>, response: Response) ->
     Ok(())
 }
 
+fn handle_create_window(
+    pipe: &Arc<ClientComPipe>,
+    window_ids: &mut Vec<WinID>,
+    shm_objects: &HashMap<ShmKey, Arc<SharedObject>>,
+    request: CreateWindow,
+) -> Result<Response, ResponseError> {
+    let shm_key = request.shm_key();
+    let object = shm_objects
+        .get(&shm_key)
+        .ok_or(ResponseError::InvalidShmKey)?
+        .clone();
+    let name = *request.name_inner();
+    let height = request.height() as usize;
+    let width = request.width() as usize;
+    let flags = request.flags();
+
+    let abs_pos = request.x().is_some() || request.y().is_some();
+
+    let window = Window::new_filled_with(
+        name,
+        request.icon(),
+        request.x().map(|x| x as isize).unwrap_or(0),
+        request.y().map(|y| y as isize).unwrap_or(0),
+        width,
+        height,
+        Pixel::NONE,
+        object,
+        flags,
+    )
+    .with_com_pipe(pipe.clone());
+
+    let mut kind = WindowKind::Normal;
+    if flags.contains(WindowFlags::BG_WINDOW) {
+        kind = WindowKind::Background;
+    } else if flags.contains(WindowFlags::OVERLAY_WINDOW) {
+        kind = WindowKind::Overlay;
+    }
+
+    window::add_window(window, kind, !abs_pos)
+        .map(|id| {
+            dlog!("Added Window {id}, with the SHM Key {shm_key} for a client");
+            window_ids.push(id);
+            WindowCreated::new(id)
+        })
+        .map(Response::WindowCreated)
+        .ok_or(ResponseError::OtherFatalError)
+}
+
+fn handle_preload_icon(
+    shm_objects: &HashMap<ShmKey, Arc<SharedObject>>,
+    request: PreloadIcon,
+) -> Result<Response, ResponseError> {
+    let size = request.load_bytes();
+    let key = request.load_from();
+    if size > (256 * 256 * size_of::<Pixel>()) + 128 {
+        return Err(ResponseError::TooLarge);
+    }
+
+    let src_obj = shm_objects.get(&key).ok_or(ResponseError::InvalidShmKey)?;
+
+    let src_obj_data = src_obj.data();
+    if src_obj_data.len() < size {
+        return Err(ResponseError::SharedObjectTooSmall);
+    }
+
+    // TODO: Validate the icon data
+    let icon_data = src_obj_data[..size].to_vec();
+    let id = crate::icons::add_icon(icon_data);
+    Ok(Response::IconPreloaded(IconPreloaded::new(id)))
+}
+
+fn handle_load_icon(
+    shm_objects: &HashMap<ShmKey, Arc<SharedObject>>,
+    request: LoadIcon,
+    icon_data: &[u8],
+) -> Result<Response, ResponseError> {
+    let shm_key = request.store_into();
+    let object = shm_objects
+        .get(&shm_key)
+        .ok_or(ResponseError::InvalidShmKey)?;
+
+    // Safety: Reading and muttating objects is done with synchronization and checks.
+    let dest_obj_data = unsafe { object.data_inner().as_mut() };
+    if dest_obj_data.len() < icon_data.len() {
+        return Err(ResponseError::SharedObjectTooSmall);
+    }
+
+    let dest = &mut dest_obj_data[..icon_data.len()];
+    dest.copy_from_slice(icon_data);
+    Ok(Response::LoadedIcon(IconLoaded::new(dest.len())))
+}
+
 async fn handle_event_on(
     window_ids: &mut Vec<WinID>,
+    shm_objects: &mut HashMap<ShmKey, Arc<SharedObject>>,
     pipe: &Arc<ClientComPipe>,
     receiver: &mut ClientComReceiver<'_>,
 ) -> bool {
     let response = match receiver.receive_request_async().await {
-        Ok(req) => match req.kind() {
-            RequestKind::CreateWindow(request) => match request.name() {
-                Some(name) => {
-                    let height = request.height() as usize;
-                    let width = request.width() as usize;
-                    let flags = request.flags();
-
-                    let abs_pos = flags.contains(WindowFlags::ABS_POS);
-
-                    let window = Window::new_filled_with(
-                        name,
-                        request.icon(),
-                        request.x().map(|x| x as isize).unwrap_or(0),
-                        request.y().map(|y| y as isize).unwrap_or(0),
-                        width,
-                        height,
-                        Pixel::NONE,
-                        flags,
-                    )
-                    .with_com_pipe(pipe.clone());
-
-                    let shm_key = *window.shm_key();
-
-                    let mut kind = WindowKind::Normal;
-                    if flags.contains(WindowFlags::BG_WINDOW) {
-                        kind = WindowKind::Background;
-                    } else if flags.contains(WindowFlags::OVERLAY_WINDOW) {
-                        kind = WindowKind::Overlay;
-                    }
-
-                    window::add_window(window, kind, !abs_pos)
-                        .map(|id| {
-                            dlog!("Added Window {id}, with the SHM Key {shm_key} for a client");
-                            window_ids.push(id);
-                            CreateWindowResp::new(id, shm_key)
-                        })
-                        .map(OkResponse::WindowCreated)
-                        .ok_or(ResponseError::UnknownFatalError)
-                }
-                None => Err(ResponseError::InvalidUtf8),
-            },
-            RequestKind::DamageWindow(damage) => {
+        Ok(req) => match req {
+            Request::AllocateObject(request) => SharedObject::allocate(request.size())
+                .map_err(|_| ResponseError::OtherFatalError)
+                .map(|obj| {
+                    let key = obj.shm_key();
+                    shm_objects.insert(key, Arc::new(obj));
+                    Response::AllocatedObject(NewSharedObject::new(key))
+                }),
+            Request::DestroyObject(DestroyObject, key) => shm_objects
+                .remove(&key)
+                .ok_or(ResponseError::InvalidShmKey)
+                .map(|_| Response::ok()),
+            Request::CreateWindow(request) => {
+                handle_create_window(pipe, window_ids, shm_objects, request)
+            }
+            Request::DamageWindow(damage, win_id) => {
                 if let Err(()) = window::damage_window_async(
-                    damage.win_id(),
+                    win_id,
                     damage.x() as usize,
                     damage.y() as usize,
                     damage.width() as usize,
@@ -129,100 +199,70 @@ async fn handle_event_on(
                 {
                     Err(ResponseError::UnknownWindow)
                 } else {
-                    Ok(OkResponse::Success)
+                    Ok(Response::ok())
                 }
             }
-            RequestKind::Ping => Ok(OkResponse::Success),
-            RequestKind::GetScreenInfo => {
+            Request::Ping(Ping) => Ok(Response::ok()),
+            Request::GetScreenInfo(GetScreenInfo) => {
                 let fb_info = *FB_INFO;
                 let width = fb_info.width as u32;
                 let height = fb_info.height as u32;
 
-                Ok(OkResponse::ScreenInfo(ScreenInfo { width, height }))
+                Ok(Response::ScreenInfo(ScreenInfo { width, height }))
             }
-            RequestKind::PreloadIcon(req) => {
-                let size = req.icon_size();
-                let mut data = vec![0; size];
-                if let Err(e) = receiver.read_exact(&mut data)
-                    && e.kind() != ErrorKind::ConnectionAborted
-                {
-                    elog!(
-                        "Failed to read {size} bytes from the client, err: {e:#?}, disconnecting..."
-                    );
-                    return false;
+            Request::PreloadIcon(request) => handle_preload_icon(shm_objects, request),
+            Request::LoadIcon(request, icon) => {
+                if let Ok(results) = crate::icons::get_icon(icon, |data| {
+                    handle_load_icon(shm_objects, request, data)
+                }) {
+                    results
+                } else {
+                    Err(ResponseError::UnknownIcon)
                 }
-                let id = crate::icons::add_icon(data);
-                Ok(OkResponse::IconPreloaded(IconPreloaded::new(id)))
             }
-            RequestKind::LoadIcon(req) => {
-                let mut sender = pipe.sender();
-                let Some(size) = icon_size(req.id()) else {
-                    match write_response(&mut sender, Response::Err(ResponseError::UnknownIcon))
-                        .await
-                    {
-                        Ok(()) => return true,
-                        Err(()) => return false,
-                    }
-                };
-
-                match write_response(
-                    &mut sender,
-                    Response::Ok(OkResponse::LoadingIcon(IconData::new(size))),
-                )
-                .await
-                {
-                    Ok(()) => (),
-                    Err(()) => return false,
-                }
-
-                if let Err(e) = crate::icons::load_icon_to(req.id(), &mut sender) {
-                    elog!(
-                        "Failed to write icon payload as per LoadIcon request to a client, err: {e:#?}, disconnecting..."
-                    );
-                    return false;
-                }
-                return true;
-            }
-            RequestKind::GetWindowInfo(w) => {
+            Request::GetWindowInfo(GetWindowInfo, win_id) => {
                 let windows = WINDOWS
                     .lock()
                     .expect("Failed to acquire lock on windows for a listener");
-                match windows.get_window(w.win_id()) {
+                match windows.get_window(win_id) {
                     Some(w) => {
-                        let resp = WindowInfo::new(
-                            w.name(),
-                            w.icon(),
+                        let mut resp = WindowInfo::new(
                             w.x() as i32,
                             w.y() as i32,
                             w.width() as u32,
                             w.height() as u32,
                             w.flags(),
                             w.status(),
+                            Name::new(w.name()).unwrap(),
                         );
 
-                        Ok(OkResponse::WindowInfo(resp))
+                        if let Some(icon_id) = w.icon() {
+                            resp = resp.with_icon_id(icon_id);
+                        }
+
+                        Ok(Response::WindowInfo(resp))
                     }
                     None => Err(ResponseError::UnknownWindow),
                 }
             }
-            RequestKind::FocusWindow(req) => {
-                if !window::focus(req.win_id()) {
+            Request::FocusWindow(FocusWindow, win_id) => {
+                if !window::focus(win_id) {
                     Err(ResponseError::UnknownWindow)
                 } else {
-                    Ok(OkResponse::Success)
+                    Ok(Response::ok())
                 }
             }
         },
         Err(read_error) => match read_error {
-            ReadError::ParseErr(e) => Err(ResponseError::from(e)),
-            ReadError::IOError(e) if e.kind() == ErrorKind::ConnectionAborted => {
+            ReadError::DecodeError(e) => Err(e.into()),
+            ReadError::Io(e) if e.kind() == ErrorKind::ConnectionAborted => {
                 dlog!("One client disconnected successfully");
                 return false;
             }
-            ReadError::IOError(io) if io.kind() == ErrorKind::WouldBlock => {
+            ReadError::Io(e) if e.kind() == ErrorKind::WouldBlock => {
                 return true;
             }
-            ReadError::IOError(e) => {
+            ReadError::Io(e) => {
                 elog!("Error reading from socket '{e}', disconnecting...");
                 return false;
             }
@@ -230,8 +270,8 @@ async fn handle_event_on(
     };
 
     let response = match response {
-        Err(e) => Response::Err(e),
-        Ok(k) => Response::Ok(k),
+        Err(e) => Response::err(e),
+        Ok(k) => k,
     };
 
     write_response(&mut pipe.sender(), response).await.is_ok()
@@ -241,13 +281,14 @@ async fn handle_connection_async(connection: UnixSockConnection) {
     dlog!("Handling a new connection");
 
     let mut window_ids = Vec::with_capacity(1);
+    let mut shared_objects = HashMap::with_capacity(1);
 
     let pipe = Arc::new(ClientComPipe::new(connection));
     // No one else is going to be receiving requests and therefore we can take ownership of the receiver
     let mut receiver = pipe.receiver();
 
     loop {
-        if !handle_event_on(&mut window_ids, &pipe, &mut receiver).await {
+        if !handle_event_on(&mut window_ids, &mut shared_objects, &pipe, &mut receiver).await {
             break;
         }
     }

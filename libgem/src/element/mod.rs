@@ -44,7 +44,13 @@ pub trait Element<RootCanvas: DrawingCanvas, G: Gem>: Any {
     /// Returns true if the element needs to be redrawn.
     fn needs_redraw(&self) -> bool;
     /// Handles an event for the element, given a relative position of the element from the canvas.
-    fn handle_event(&mut self, gem: &mut G, event: libopal::Event, ele_x: u32, ele_y: u32) {
+    fn handle_event(
+        &mut self,
+        gem: &mut G,
+        event: libopal::event::WindowEvent,
+        ele_x: u32,
+        ele_y: u32,
+    ) {
         _ = gem;
         _ = event;
         _ = ele_x;

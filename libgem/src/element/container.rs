@@ -277,7 +277,13 @@ impl<Canvas: DrawingCanvas + 'static, G: Gem> Element<Canvas, G> for Container<C
         self.draw_width()
     }
 
-    fn handle_event(&mut self, gem: &mut G, event: libopal::Event, start_x: u32, start_y: u32) {
+    fn handle_event(
+        &mut self,
+        gem: &mut G,
+        event: libopal::event::WindowEvent,
+        start_x: u32,
+        start_y: u32,
+    ) {
         self.layout_elements(start_x, start_y, |ele, ele_x, ele_y| {
             ele.handle_event(gem, event, ele_x, ele_y);
         });

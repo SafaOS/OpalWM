@@ -10,9 +10,9 @@ use std::{
     io::{BufReader, Read},
 };
 
-use opal_abi::com::response::event::{
-    Event, HeldMouseButtons, MouseChangeEvent, MouseEnterEvent, MouseLeaveEvent,
-};
+use libopal::WindowEvent;
+use opal_abi::msg::event::{MouseChangeEvent, MouseEnterEvent, MouseLeaveEvent};
+use opal_abi::{Name, defs::HeldMouseButtons};
 use opal_img::bmp::BMPImage;
 use safa_api::abi::input::{KeyCode, MiceBtnStatus, MiceEvent, MouseEventKind};
 
@@ -49,7 +49,7 @@ impl MiceCursor {
             let mut windows = WINDOWS.lock().expect("failed to get lock on windows");
             windows
                 .add_window(
-                    Window::new_from_bmp("", None, 0, 0, cursor_bmp),
+                    Window::new_from_bmp(Name::new_truncate("cursor"), None, 0, 0, cursor_bmp),
                     WindowKind::Cursor,
                     true,
                 )
@@ -144,7 +144,7 @@ impl MiceCursor {
                                 windows
                                     .send_event(
                                         curr_id,
-                                        Event::MouseEnter(MouseEnterEvent::new(x, y)),
+                                        WindowEvent::MouseEnter(MouseEnterEvent::new(x, y)),
                                     )
                                     .expect("Window removed before we could send an event to it");
                                 mouse_enter = true;
@@ -155,8 +155,10 @@ impl MiceCursor {
                                 && mouse_enter
                             {
                                 /* It is ok the old window might be gone by now */
-                                _ = windows
-                                    .send_event(old_id, Event::MouseLeave(MouseLeaveEvent::new()));
+                                _ = windows.send_event(
+                                    old_id,
+                                    WindowEvent::MouseLeave(MouseLeaveEvent::new()),
+                                );
                             }
 
                             // FIXME: for some reason mouse release events are not being sent by the kernel driver.
@@ -180,7 +182,7 @@ impl MiceCursor {
 
                                 let change_event =
                                     MouseChangeEvent::new(buttons_changed, held_buttons, x, y);
-                                windows.send_event(curr_id, Event::MouseChange(change_event)).expect("Current Window was removed before we could handle a mouse event");
+                                windows.send_event(curr_id, WindowEvent::MouseChange(change_event)).expect("Current Window was removed before we could handle a mouse event");
                             }
 
                             if can_focus
@@ -196,8 +198,10 @@ impl MiceCursor {
                         None => {
                             if let Some(old_id) = old_win_id {
                                 /* It is ok the old window might be gone by now */
-                                _ = windows
-                                    .send_event(old_id, Event::MouseLeave(MouseLeaveEvent::new()));
+                                _ = windows.send_event(
+                                    old_id,
+                                    WindowEvent::MouseLeave(MouseLeaveEvent::new()),
+                                );
                             }
 
                             if left_button_is_pressed && !left_button_was_pressed {

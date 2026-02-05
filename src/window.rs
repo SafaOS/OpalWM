@@ -13,28 +13,20 @@ use std::{
 
 use indexmap::IndexSet;
 use libopal::{
-    event::{
-        GlobalWindowAttached, GlobalWindowDeatached, GlobalWindowFocused, GlobalWindowUnfocused,
-        WindowEvent,
-    },
+    defs::{IconID, WindowStatus},
+    event::{Event, WindowAttached, WindowDeatached, WindowEvent, WindowFocusChanged},
     window::WindowFlags,
 };
-use opal_abi::com::{
-    request::{IconID, MAX_NAME_LEN},
-    response::{Response, WindowStatus, event::Event},
-};
+use opal_abi::{Name, msg::Message};
 use opal_img::bmp::BMPImage;
 use rustc_hash::{FxBuildHasher, FxHashMap};
-use safa_api::{
-    abi::mem::{MemMapFlags, ShmFlags},
-    syscalls::types::Ri,
-};
 
 use crate::{
     REALLY_VERBOSE,
     com::ClientComPipe,
     dlog, elog,
     framebuffer::{self, BG_PIXEL, FB_INFO, Framebuffer, Pixel},
+    shm::SharedObject,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -123,28 +115,14 @@ pub struct Window {
     height: usize,
     /// The pixels of the window, safe to use because they live as long as the window itself.
     pixels: NonNull<[Pixel]>,
-    // TODO: Implement a good shared memory wrapper to drop this automatically.
-    shm_key: usize,
-    // TODO: Implement a good shared memory or a resource wrapper to drop this automatically.
-    shm_ri: Ri,
-    // TODO: Implement a good memory map or a resource wrapper to drop this automatically.
-    mmap_ri: Ri,
+    _shm_object: Arc<SharedObject>,
     com_pipe: Option<Arc<ClientComPipe>>,
     damage_reason: Option<WindowDamageReason>,
 
     icon: Option<IconID>,
-    name: arrayvec::ArrayString<MAX_NAME_LEN>,
+    name: Name,
     flags: WindowFlags,
     status: WindowStatus,
-}
-
-impl Drop for Window {
-    fn drop(&mut self) {
-        safa_api::syscalls::resources::destroy_resource(self.shm_ri)
-            .expect("SHM was dropped before Window was dropped");
-        safa_api::syscalls::resources::destroy_resource(self.mmap_ri)
-            .expect("MMAP was dropped before Window was dropped");
-    }
 }
 
 unsafe impl Send for Window {}
@@ -197,65 +175,40 @@ impl Window {
         self
     }
 
-    /// A shared memory key that lives as long as the window itself, and can be used to access the window's pixels.
-    pub const fn shm_key(&self) -> &usize {
-        &self.shm_key
-    }
-
     /// Sends an event to the client that owns this window.
-    pub fn send_event(&self, self_id: WinID, event: Event) {
+    fn send_event_inner(&self, event: Event) {
+        let message = Message::new_event(event);
         if let Some(com_pipe) = &self.com_pipe {
-            if let Err(err) = com_pipe
-                .sender()
-                .send_response_raw(&Response::Event(WindowEvent::new(self_id, event)))
+            if let Err(err) = com_pipe.sender().send_message_raw(&message)
                 && err.kind() != ErrorKind::ConnectionAborted
                 && err.kind() != ErrorKind::ConnectionReset
             {
                 // TODO: Maybe this is fatal?
-                elog!("Failed to send an event {event:#?} to the client err: {err:?}, ignoring...")
+                elog!(
+                    "Failed to send an event {message:#?} to the client err: {err:?}, ignoring..."
+                )
             }
         }
     }
 
-    fn allocate_pixel_buffer(
-        width: usize,
-        height: usize,
-        fill_pixel: Pixel,
-    ) -> (NonNull<[Pixel]>, Ri, Ri, usize) {
-        let pixels_required = width * height;
-        let bytes_required = pixels_required * size_of::<Pixel>();
-        let pages_required = bytes_required.div_ceil(4096);
-
-        let (shm_key, shm_ri) =
-            safa_api::syscalls::mem::shm_create(pages_required, ShmFlags::from_bits_retaining(0))
-                .expect("Failed to create a new shared mem mapping for a Window");
-
-        let (mmap_ri, pixels_bytes) = safa_api::syscalls::mem::map(
-            core::ptr::null(),
-            pages_required,
-            0,
-            Some(shm_ri),
-            None,
-            MemMapFlags::WRITE,
-        )
-        .expect("Failed to memmap a new Window's pixels");
-
-        let mut pixels =
-            NonNull::slice_from_raw_parts(pixels_bytes.cast::<Pixel>(), pixels_required);
-        unsafe {
-            pixels.as_mut().fill(fill_pixel);
-        }
-        (pixels, shm_ri, mmap_ri, shm_key)
+    /// Sends an event to the client that owns this window.
+    pub fn send_event(&self, event: WindowEvent, win_id: WinID) {
+        self.send_event_inner(Event::new(event, win_id))
     }
 
     /// Creates a new Window from a given BMP Image
     pub fn new_from_bmp(
-        name: &str,
+        name: Name,
         icon: Option<IconID>,
         pos_x: isize,
         pos_y: isize,
         image: BMPImage,
     ) -> Window {
+        let width = image.width() as usize;
+        let height = image.height() as usize;
+        let shm_object = SharedObject::allocate(width * height * size_of::<Pixel>())
+            .expect("Failed to allocate space for bitmap image");
+
         Self::new_from_pixels(
             name,
             icon,
@@ -263,6 +216,7 @@ impl Window {
             pos_y,
             image.width() as usize,
             image.height() as usize,
+            Arc::new(shm_object),
             image
                 .pixels()
                 .map(|c| Pixel::rgb(c.red(), c.green(), c.blue()).with_alpha(c.alpha())),
@@ -271,16 +225,22 @@ impl Window {
 
     /// Creates a new Window and fills it with `fill_pixels`
     pub fn new_from_pixels(
-        name: &str,
+        name: Name,
         icon: Option<IconID>,
         pos_x: isize,
         pos_y: isize,
         width: usize,
         height: usize,
+        shm_object: Arc<SharedObject>,
         fill_pixels: impl ExactSizeIterator + Iterator<Item = Pixel>,
     ) -> Window {
-        let (mut pixels, shm_ri, mmap_ri, shm_key) =
-            Self::allocate_pixel_buffer(width, height, Pixel::NONE);
+        let pixels_ptr = shm_object.data_inner();
+        assert!(
+            width * height * size_of::<Pixel>() <= pixels_ptr.len(),
+            "Given SHM Object has too little space"
+        );
+
+        let mut pixels = NonNull::slice_from_raw_parts(pixels_ptr.cast::<Pixel>(), width * height);
         let pixels_mut = unsafe { pixels.as_mut() };
 
         assert_eq!(
@@ -301,9 +261,7 @@ impl Window {
             pos_y,
             width,
             height,
-            shm_ri,
-            mmap_ri,
-            shm_key,
+            shm_object,
             pixels,
             WindowFlags::empty(),
         )
@@ -311,32 +269,38 @@ impl Window {
 
     /// Creates a new Window and fills it repeatedly with a given `pixel`
     pub fn new_filled_with(
-        name: &str,
+        name: Name,
         icon: Option<IconID>,
         pos_x: isize,
         pos_y: isize,
         width: usize,
         height: usize,
         pixel: Pixel,
+        shm_object: Arc<SharedObject>,
         flags: WindowFlags,
     ) -> Self {
-        let (pixels, shm_ri, mmap_ri, shm_key) = Self::allocate_pixel_buffer(width, height, pixel);
+        let pixels_ptr = shm_object.data_inner();
+        assert!(
+            width * height * size_of::<Pixel>() <= pixels_ptr.len(),
+            "Given SHM Object has too little space"
+        );
+
+        let mut pixels = NonNull::slice_from_raw_parts(pixels_ptr.cast::<Pixel>(), width * height);
+        unsafe { pixels.as_mut().fill(pixel) };
 
         Window::new_inner(
-            name, icon, pos_x, pos_y, width, height, shm_ri, mmap_ri, shm_key, pixels, flags,
+            name, icon, pos_x, pos_y, width, height, shm_object, pixels, flags,
         )
     }
 
     fn new_inner(
-        name: &str,
+        name: Name,
         icon: Option<IconID>,
         pos_x: isize,
         pos_y: isize,
         width: usize,
         height: usize,
-        shm_ri: Ri,
-        mmap_ri: Ri,
-        shm_key: usize,
+        shm_object: Arc<SharedObject>,
         pixels: NonNull<[Pixel]>,
         flags: WindowFlags,
     ) -> Self {
@@ -346,13 +310,11 @@ impl Window {
             width,
             height,
             pixels,
-            shm_key,
-            shm_ri,
-            mmap_ri,
+            _shm_object: shm_object,
             com_pipe: None,
             damage_reason: None,
             icon,
-            name: arrayvec::ArrayString::from(name).expect("Name too long"),
+            name,
             status: WindowStatus::empty(),
             flags,
         }
@@ -830,7 +792,7 @@ impl Windows {
         let id = self.add_id()?;
 
         if window.flags.contains(WindowFlags::GLOBAL) {
-            self.bordcast_global_event(Event::GlobalWindowAttached(GlobalWindowAttached::new(
+            self.broadcast_global_event(WindowEvent::GlobalWindowAttached(WindowAttached::new(
                 id,
                 window.x() as i32,
                 window.y() as i32,
@@ -864,14 +826,14 @@ impl Windows {
         };
 
         window.status.insert(WindowStatus::FOCUSED);
-        window.send_event(win_id, Event::WindowFocused);
+        let event = WindowFocusChanged::new(true);
+
+        window.send_event(WindowEvent::WindowFocusChanged(event), win_id);
         window.damage_whole();
 
         let window_kind = *window_kind;
         if window.flags.contains(WindowFlags::GLOBAL) {
-            self.bordcast_global_event(Event::GlobalWindowFocused(GlobalWindowFocused::new(
-                win_id,
-            )));
+            self.broadcast_global_event(WindowEvent::GlobalWindowFocusChanged(event, win_id));
         }
 
         self.unfocus_current();
@@ -901,13 +863,15 @@ impl Windows {
     pub fn unfocus_current(&mut self) {
         if let Some(win_id) = self.focused_window.take() {
             if let Some((win, _)) = self.windows.get_mut(&win_id) {
-                win.send_event(win_id, Event::WindowUnfocused);
+                let focus_event = WindowFocusChanged::new(false);
+                win.send_event(WindowEvent::WindowFocusChanged(focus_event), win_id);
                 win.damage_whole();
                 win.status.remove(WindowStatus::FOCUSED);
 
                 if win.flags.contains(WindowFlags::GLOBAL) {
-                    self.bordcast_global_event(Event::GlobalWindowUnfocused(
-                        GlobalWindowUnfocused::new(win_id),
+                    self.broadcast_global_event(WindowEvent::GlobalWindowFocusChanged(
+                        focus_event,
+                        win_id,
                     ));
                 }
                 self.signal_redraw();
@@ -977,16 +941,16 @@ impl Windows {
         Ok(())
     }
 
-    pub fn send_event(&mut self, win_id: WinID, event: Event) -> Result<(), ()> {
+    pub fn send_event(&mut self, win_id: WinID, event: WindowEvent) -> Result<(), ()> {
         let (win, _) = self.windows.get_mut(&win_id).ok_or(())?;
-        win.send_event(win_id, event);
+        win.send_event(event, win_id);
         Ok(())
     }
 
-    /// Bordcasts a global event to all the windows that are subscribed to that event.
-    pub fn bordcast_global_event(&mut self, event: Event) {
-        for (id, (win, _)) in self.windows.iter() {
-            win.send_event(*id, event);
+    /// Broadcasts a global event to all the windows that are subscribed to that event.
+    pub fn broadcast_global_event(&mut self, event: WindowEvent) {
+        for (win_id, (win, _)) in self.windows.iter() {
+            win.send_event_inner(Event::new(event, *win_id));
         }
     }
 
@@ -1035,7 +999,7 @@ impl Windows {
         );
 
         if window.flags.contains(WindowFlags::GLOBAL) {
-            self.bordcast_global_event(Event::GlobalWindowDeatached(GlobalWindowDeatached::new(
+            self.broadcast_global_event(WindowEvent::GlobalWindowDeatached(WindowDeatached::new(
                 win_id,
             )));
         }

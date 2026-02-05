@@ -4,17 +4,16 @@ use std::{
     sync::{Mutex, MutexGuard},
 };
 
-use opal_abi::com::{
-    packet::{MAX_PACKET_SIZE, PacketParseErr},
-    request::Request,
-    response::Response,
+use libopal::OpalV1;
+use opal_abi::{
+    DecodeErrorOrIo,
+    msg::{Message, Request, Response},
 };
 use safa_api::{
     abi::poll::{PollEntry, PollEvents},
     sockets::UnixSockConnection,
     syscalls::types::Ri,
 };
-use thiserror::Error;
 
 use crate::executor;
 
@@ -23,7 +22,7 @@ pub mod listener;
 /// Represents a future for sending a response over a client communication channel.
 pub struct ComSendFuture<'a, 'b> {
     sender: &'a mut ClientComSender<'b>,
-    response: Response,
+    message: Message,
 }
 
 impl<'a, 'b> Future for ComSendFuture<'a, 'b> {
@@ -34,9 +33,9 @@ impl<'a, 'b> Future for ComSendFuture<'a, 'b> {
     ) -> std::task::Poll<Self::Output> {
         let this = self.get_mut();
         let sender = &mut this.sender;
-        let response = &this.response;
+        let message = &this.message;
 
-        match sender.send_response_raw(response) {
+        match sender.send_message_raw(message) {
             Ok(()) => std::task::Poll::Ready(Ok(())),
             Err(err) => match err.kind() {
                 ErrorKind::WouldBlock => {
@@ -64,15 +63,17 @@ impl<'a, 'b> Future for ComReceiveFuture<'a, 'b> {
     ) -> std::task::Poll<Self::Output> {
         match self.receiver.receive_request() {
             Ok(req) => std::task::Poll::Ready(Ok(req)),
-            Err(ReadError::ParseErr(p)) => std::task::Poll::Ready(Err(ReadError::ParseErr(p))),
-            Err(ReadError::IOError(err)) => match err.kind() {
+            Err(ReadError::DecodeError(p)) => {
+                std::task::Poll::Ready(Err(ReadError::DecodeError(p)))
+            }
+            Err(ReadError::Io(err)) => match err.kind() {
                 ErrorKind::WouldBlock => {
                     let ri = self.receiver.pipe.ri();
                     let waker = cx.waker().clone();
                     executor::poll_resource(PollEntry::new(ri, PollEvents::DATA_AVAILABLE), waker);
                     std::task::Poll::Pending
                 }
-                _ => std::task::Poll::Ready(Err(ReadError::IOError(err))),
+                _ => std::task::Poll::Ready(Err(ReadError::Io(err))),
             },
         }
     }
@@ -92,19 +93,14 @@ unsafe impl<'a> Send for ClientComSender<'a> {}
 
 impl<'a> ClientComSender<'a> {
     /// Sends a response to the client, returns [`WouldBlock`] if the pipe is not ready to send.
-    pub fn send_response_raw(&mut self, response: &Response) -> Result<(), io::Error> {
-        let (bytes, len) = response.encode();
-        let bytes = &bytes[..len];
-
-        let len = self.write(bytes)?;
-        debug_assert_eq!(len, bytes.len());
-        Ok(())
+    pub fn send_message_raw(&mut self, message: &Message) -> Result<(), io::Error> {
+        message.encode_into(self).map(|_| ())
     }
 
     /// Sends a response to the client, blocks until the response is sent.
     pub async fn send_response_async(&mut self, response: Response) -> Result<(), io::Error> {
         ComSendFuture {
-            response,
+            message: Message::new_response(response),
             sender: self,
         }
         .await
@@ -124,10 +120,13 @@ unsafe impl<'a> Send for ClientComReceiver<'a> {}
 impl<'a> ClientComReceiver<'a> {
     /// Receives a request from the client, blocks until the request is received.
     fn receive_request(&mut self) -> Result<Request, ReadError> {
-        let mut buf = [0u8; MAX_PACKET_SIZE];
-        let len = self.read(&mut buf)?;
-        let request = &buf[..len];
-        Ok(Request::decode(request)?)
+        let (this, _) = Message::decode_from(self)?;
+        match this {
+            Message::OpalV1(OpalV1::Request(request)) => Ok(request),
+            _ => Err(ReadError::DecodeError(
+                opal_abi::DecodeError::UnexpectedMessage,
+            )),
+        }
     }
 
     /// Receives a request from the client, blocks until the request is received.
@@ -147,13 +146,7 @@ pub struct ClientComPipe {
 }
 
 /// An Error that happened during reading a request from a Client
-#[derive(Error, Debug)]
-pub enum ReadError {
-    #[error("Failed to parse Client's Request {0}")]
-    ParseErr(#[from] PacketParseErr),
-    #[error("Error while reading from a socket: {0}")]
-    IOError(#[from] io::Error),
-}
+pub type ReadError = DecodeErrorOrIo;
 
 unsafe impl Send for ClientComPipe {}
 unsafe impl Sync for ClientComPipe {}

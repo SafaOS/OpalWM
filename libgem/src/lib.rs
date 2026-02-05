@@ -7,6 +7,7 @@ pub use libopal;
 pub use libopal::safa_abi;
 pub use libopal::safa_api;
 
+use libopal::shm::SharedObject;
 pub use opal_img as image;
 use opal_img::BMPImage;
 
@@ -134,7 +135,13 @@ impl<'a> GemConfig<'a> {
 
     fn build_container<G: Gem>(self) -> RootContainer<G> {
         let icon_id = self.icon.map(|image| {
-            libopal::icon::preload_icon(image.as_raw_bytes()).expect("Failed to preload Icon")
+            let bytes = image.as_raw_bytes();
+            libopal::icon::preload_icon(
+                &mut SharedObject::allocate(bytes.len())
+                    .expect("Failed to allocate shared object for Icon"),
+                bytes,
+            )
+            .expect("Failed to preload Icon")
         });
 
         match self.border_color {
@@ -369,8 +376,8 @@ impl<G: Gem> App<G> {
     fn handle_events(&mut self, events: &DequeuedEvents) {
         for event in (**events)
             .iter()
-            .filter(|e| e.win() == self.cont.root.id())
-            .map(|w_eve| w_eve.event())
+            .filter(|eve| eve.receiver() == self.cont.root.id())
+            .map(|eve| eve.event())
         {
             if let Some((ref mut title_bar, title_bar_y)) = self.cont.title_bar {
                 title_bar.handle_event(&mut self.gem, event, self.cont.window_x, title_bar_y);

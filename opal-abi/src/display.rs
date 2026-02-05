@@ -1,3 +1,5 @@
+//! Defines some framebuffer and display-related constants and structures.
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 /// Represents a single pixel
 #[repr(C)]

@@ -1,4 +1,4 @@
-pub use opal_abi::fb::Pixel;
+pub use opal_abi::display::Pixel;
 use std::sync::{LazyLock, Mutex, MutexGuard};
 
 use safa_api::syscalls::types::Ri;

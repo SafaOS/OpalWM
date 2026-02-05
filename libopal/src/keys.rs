@@ -1,4 +1,4 @@
-use opal_abi::com::response::event::KeyCode;
+use opal_abi::msg::event::KeyCode;
 
 /// Given a keycode returns all the possible characters that can be typed with that key:
 ///

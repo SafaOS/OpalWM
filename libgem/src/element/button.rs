@@ -1,4 +1,4 @@
-use libopal::{event::HeldMouseButtons, window::Pixel};
+use libopal::{defs::HeldMouseButtons, window::Pixel};
 
 use crate::{Gem, canvas::DrawingCanvas, element::Element, text::Text};
 
@@ -237,17 +237,17 @@ impl<RootCanvas: DrawingCanvas, G: Gem> Element<RootCanvas, G> for Button<G> {
         self.style.max_width
     }
 
-    fn handle_event(&mut self, gem: &mut G, event: libopal::Event, ele_x: u32, ele_y: u32) {
+    fn handle_event(&mut self, gem: &mut G, event: libopal::WindowEvent, ele_x: u32, ele_y: u32) {
         let last_mouse_hovering = self.mouse_hovering;
 
         let (mouse_x, mouse_y, is_held) = match event {
-            libopal::Event::MouseChange(change_event) => (
+            libopal::WindowEvent::MouseChange(change_event) => (
                 Some(change_event.x()),
                 Some(change_event.y()),
                 change_event.buttons_changed()
                     && change_event.held_buttons().contains(HeldMouseButtons::LEFT),
             ),
-            libopal::Event::MouseEnter(enter_event) => {
+            libopal::WindowEvent::MouseEnter(enter_event) => {
                 (Some(enter_event.x()), Some(enter_event.y()), false)
             }
             _ => {

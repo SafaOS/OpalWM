@@ -3,8 +3,12 @@
 /// The abstract socket address to use to connect with the OpalWM
 pub const CONNECT_ABSTRACT_ADDR: &str = "opal_wm::connect";
 
-/// The communication protocol, contains he layout of packets
-/// that can be sent to and from the WM
-pub mod com;
+pub mod defs;
+pub mod display;
+pub mod msg;
 
-pub mod fb;
+mod encoding;
+mod misc;
+
+pub use encoding::{DecodeError, DecodeErrorOrIo};
+pub use misc::{BufOfMax, Name, StrOfMax};

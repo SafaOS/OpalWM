@@ -20,6 +20,7 @@ mod icons;
 mod kbd;
 mod logging;
 mod mice;
+mod shm;
 mod vtty;
 mod window;
 

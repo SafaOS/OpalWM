@@ -1,31 +1,21 @@
-use std::ptr::NonNull;
-
-use opal_abi::com::{
-    request::{CreateWindow, DamageWindow, FocusWindow, GetWindowInfo, IconID, RequestKind},
-    response::{WindowInfo, error::ResponseError},
-};
-use safa_api::{
-    abi::mem::{MemMapFlags, ShmFlags},
-    syscalls::types::Ri,
+use opal_abi::{
+    Name,
+    defs::WindowID,
+    msg::{
+        request::{CreateWindow, DamageWindow, FocusWindow, GetWindowInfo, Request},
+        response::{ResponseError, WindowInfo},
+    },
 };
 
-use crate::{send_request_and_get, send_request_or_panic};
-pub use opal_abi::com::request::WindowFlags;
-pub use opal_abi::fb::Pixel;
+use crate::{send_request_and_get, send_request_or_panic, shm::SharedObject};
+pub use opal_abi::defs::{IconID, WindowFlags};
+pub use opal_abi::display::Pixel;
 
 pub struct Window {
     win_id: u16,
     width: u32,
     height: u32,
-    pixels: NonNull<[Pixel]>,
-    pixels_mmap_ri: Ri,
-}
-
-impl Drop for Window {
-    fn drop(&mut self) {
-        safa_api::syscalls::resources::destroy_resource(self.pixels_mmap_ri)
-            .expect("Window's pixels Dropped too early");
-    }
+    shm_object: SharedObject,
 }
 
 unsafe impl Send for Window {}
@@ -44,43 +34,27 @@ impl Window {
 
     /// Redraws the window's pixels as a rectangle starting at (from_x, from_y) with the given width and height.
     pub fn redraw(&self, from_x: u32, from_y: u32, width: u32, height: u32) {
-        let req = DamageWindow::new(self.win_id, from_x, from_y, width, height);
-        send_request_or_panic!(RequestKind::DamageWindow(req), Success)
+        let req = DamageWindow::new(from_x, from_y, width, height);
+        send_request_or_panic!(Request::DamageWindow(req, self.win_id), Success(_s));
     }
 
     #[inline(always)]
     /// Returns a mutable reference to the window's pixels.
     pub const fn pixels_mut(&mut self) -> &mut [Pixel] {
-        unsafe { self.pixels.as_mut() }
+        let ptr = self.shm_object.data_inner();
+        unsafe {
+            core::slice::from_raw_parts_mut(ptr.as_ptr().cast(), ptr.len() / size_of::<Pixel>())
+        }
     }
 
-    fn new_inner(win_id: u16, shm_key: usize, width: u32, height: u32) -> Self {
+    fn new_inner(win_id: u16, shm_object: SharedObject, width: u32, height: u32) -> Self {
         let pixels_required = width as usize * height as usize;
         let bytes_required = pixels_required * size_of::<Pixel>();
-        let pages_required = bytes_required.div_ceil(4096);
+        assert!(bytes_required <= shm_object.data().len());
 
-        let shm_resource =
-            safa_api::syscalls::mem::shm_open(shm_key, ShmFlags::from_bits_retaining(0))
-                .expect("WM Returned an Invalid SHM Key");
-
-        let (pixels_mmap_ri, pixels_bytes) = safa_api::syscalls::mem::map(
-            core::ptr::null(),
-            pages_required,
-            0,
-            Some(shm_resource),
-            None,
-            MemMapFlags::WRITE,
-        )
-        .expect("Failed to map SHM given by the WM");
-
-        safa_api::syscalls::resources::destroy_resource(shm_resource)
-            .expect("Failed to destroy SHM Resource");
-
-        let pixels = NonNull::slice_from_raw_parts(pixels_bytes.cast::<Pixel>(), pixels_required);
         Self {
             win_id,
-            pixels,
-            pixels_mmap_ri,
+            shm_object,
             width,
             height,
         }
@@ -95,15 +69,28 @@ impl Window {
         custom_pos: Option<(i32, i32)>,
         icon: Option<IconID>,
     ) -> Self {
-        let mut request = CreateWindow::new(title, flags, width, height, icon);
+        let object = SharedObject::allocate(width as usize * height as usize * size_of::<Pixel>())
+            .expect("Failed to allocate shared memory object");
+
+        let mut request = CreateWindow::new(
+            flags,
+            width,
+            height,
+            Name::new_truncate(title),
+            object.shm_key(),
+        );
+        if let Some(icon) = icon {
+            request = request.with_icon_id(icon);
+        }
+
         if let Some((x, y)) = custom_pos {
             request = request.with_pos(x, y);
         }
 
-        let window = send_request_or_panic!(RequestKind::CreateWindow(request), WindowCreated(w));
+        let window = send_request_or_panic!(Request::CreateWindow(request), WindowCreated(w));
 
         let id = window.window_id();
-        let mut window = Self::new_inner(id, window.shm_key(), width, height);
+        let mut window = Self::new_inner(id, object, width, height);
         window.pixels_mut().fill(Pixel::NONE);
 
         window
@@ -122,34 +109,20 @@ pub enum WindowError {
 
 /// Requests the WM to put a given window in focus
 pub fn focus_window(win_id: u16) -> Result<(), WindowError> {
-    send_request_and_get!(RequestKind::FocusWindow(FocusWindow::new(win_id)), Success).map_err(
-        |e| match e {
+    send_request_and_get!(Request::FocusWindow(FocusWindow, win_id), Success(_s))
+        .map_err(|e| match e {
             ResponseError::UnknownWindow => WindowError::UnknownWindowID,
-            ResponseError::InvalidData
-            | ResponseError::InvalidMagic
-            | ResponseError::InvalidRequestKind
-            | ResponseError::PacketTooShort
-            | ResponseError::InvalidUtf8
-            | ResponseError::UnknownFatalError
-            | ResponseError::UnknownIcon => panic!("Unexpected error: {:?}", e),
-        },
-    )
+            e => panic!("Unexpected error: {:?}", e),
+        })
+        .map(|_| ())
 }
 
 /// Returns Info about a given window
-pub fn window_info(win_id: u16) -> Result<WindowInfo, WindowError> {
-    send_request_and_get!(
-        RequestKind::GetWindowInfo(GetWindowInfo::new(win_id)),
-        WindowInfo(i)
+pub fn window_info(win_id: WindowID) -> Result<WindowInfo, WindowError> {
+    send_request_and_get!(Request::GetWindowInfo(GetWindowInfo, win_id), WindowInfo(i)).map_err(
+        |e| match e {
+            ResponseError::UnknownWindow => WindowError::UnknownWindowID,
+            e => panic!("Unexpected error: {:?}", e),
+        },
     )
-    .map_err(|e| match e {
-        ResponseError::UnknownWindow => WindowError::UnknownWindowID,
-        ResponseError::InvalidData
-        | ResponseError::InvalidMagic
-        | ResponseError::InvalidRequestKind
-        | ResponseError::PacketTooShort
-        | ResponseError::InvalidUtf8
-        | ResponseError::UnknownFatalError
-        | ResponseError::UnknownIcon => panic!("Unexpected error: {:?}", e),
-    })
 }
