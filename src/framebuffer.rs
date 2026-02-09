@@ -201,14 +201,8 @@ impl Framebuffer {
         pixel_rel_x: usize,
         pixel_rel_y: usize,
     ) {
-        assert!(
-            (pixels_width - pixel_rel_x) >= width,
-            "The given pixels rectangle must have width greater than or equal to the requested draw width"
-        );
-        assert!(
-            (pixels_height - pixel_rel_y) >= height,
-            "The given pixels rectangle must have height greater than or equal to the requested draw height"
-        );
+        let width = width.min(pixels_width - pixel_rel_x);
+        let height = height.min(pixels_height - pixel_rel_y);
 
         let ((off_x, off_y), (d_col_s, d_row_s), (width, height)) =
             interpret_cords(off_x, off_y, width, height, self.width, self.height);

@@ -25,6 +25,8 @@ bitflags! {
         const BG_WINDOW = 1 << 0;
         /// The window shall come on top of normal windows, and cannot be dragged or focused on.
         const OVERLAY_WINDOW = 1 << 1;
+        /// Window doesn't like the WM decorating it with dumb stuff.
+        const NO_DECORATIONS = 1 << 2;
         /// The window's creation/removal is public information,
         /// anyone can access the window ID and a global event will be bordcast on
         /// creation/removal and some window changes.

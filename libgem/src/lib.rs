@@ -188,7 +188,6 @@ struct RootContainer<G: Gem> {
 }
 
 impl<G: Gem> RootContainer<G> {
-    const CORNER_RADIUS: u32 = 8;
     const TITLE_HEIGHT: u32 = Self::DEFAULT_TITLE_FONT_SIZE + 10;
     const DEFAULT_TITLE_FONT_SIZE: u32 = 12;
     const TRANSPARENT: Pixel = Pixel::NONE;
@@ -205,30 +204,20 @@ impl<G: Gem> RootContainer<G> {
         border_color: Pixel,
         styles: ContainerStyles,
     ) -> Self {
-        let real_width = width + (Self::CORNER_RADIUS * 2);
-        let real_height = height + Self::TITLE_HEIGHT + /* we draw 2 pixels after title */ 2 + /* border thickness */ 1;
-        let window_x = Self::CORNER_RADIUS;
-        let window_y = Self::TITLE_HEIGHT + 1;
+        let real_width = width;
+        let real_height = height + Self::TITLE_HEIGHT;
+        let window_x = 0;
+        let window_y = Self::TITLE_HEIGHT;
 
         let mut win = Window::create(name, flags, real_width, real_height, custom_position, icon);
 
-        win.draw_round_rect(
+        win.draw_rect(0, 0, real_width, Self::TITLE_HEIGHT, border_color, None);
+        win.draw_rect(
             0,
-            0,
+            Self::TITLE_HEIGHT,
             real_width,
-            real_height,
-            Self::CORNER_RADIUS,
-            |is_border, line_num| {
-                if is_border {
-                    border_color
-                } else {
-                    if line_num < Self::TITLE_HEIGHT {
-                        border_color
-                    } else {
-                        bg_color
-                    }
-                }
-            },
+            real_height - Self::TITLE_HEIGHT,
+            bg_color,
             None,
         );
         win.redraw(0, 0, real_width, real_height);
@@ -242,7 +231,7 @@ impl<G: Gem> RootContainer<G> {
         );
         let title_bar_y = (Self::TITLE_HEIGHT - Self::DEFAULT_TITLE_FONT_SIZE) / 2;
 
-        let x_button_width = Self::DEFAULT_TITLE_FONT_SIZE + 10;
+        let x_button_width = Self::DEFAULT_TITLE_FONT_SIZE;
 
         let x_button_styles = ButtonStyle::new(x_button_width, Self::DEFAULT_TITLE_FONT_SIZE + 2)
             .with_font_height(Self::DEFAULT_TITLE_FONT_SIZE as f32)
@@ -256,7 +245,7 @@ impl<G: Gem> RootContainer<G> {
         x_button.on_click(|_, _| std::process::exit(0));
 
         let label_styles = TextBoxStyles::new(
-            (width - x_button_styles.real_width()) as f32,
+            (width - (x_button_styles.real_width() * 2)) as f32,
             (Self::TITLE_HEIGHT - title_bar_y) as f32,
         )
         .with_font_size(Self::DEFAULT_TITLE_FONT_SIZE as f32)
@@ -289,7 +278,14 @@ impl<G: Gem> RootContainer<G> {
         let window_x = 0;
         let window_y = 0;
 
-        let win = Window::create(name, win_flags, width, height, custom_position, icon);
+        let win = Window::create(
+            name,
+            win_flags | WindowFlags::NO_DECORATIONS,
+            width,
+            height,
+            custom_position,
+            icon,
+        );
 
         Self {
             title_bar: None,
