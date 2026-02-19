@@ -107,6 +107,14 @@ impl Rect {
     pub const fn new(width: usize, height: usize) -> Self {
         Self { width, height }
     }
+
+    pub const fn width(&self) -> usize {
+        self.width
+    }
+
+    pub const fn height(&self) -> usize {
+        self.height
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -116,25 +124,6 @@ pub struct IntersectionPoint {
 }
 
 impl IntersectionPoint {
-    #[inline(always)]
-    pub fn from_rect(point: Point, area: Rect) -> Self {
-        Self {
-            left_most: point,
-            right_most: Point::new(
-                point.x() + area.width as isize,
-                point.y() + area.height as isize,
-            ),
-        }
-    }
-
-    #[inline(always)]
-    pub fn to_rect(self) -> (Point, Rect) {
-        (
-            Point::new(self.x(), self.y()),
-            Rect::new(self.width(), self.height()),
-        )
-    }
-
     pub const fn none() -> Self {
         Self {
             left_most: Point::new(0, 0),
@@ -222,6 +211,31 @@ impl Point {
 
 impl Deref for Point {
     type Target = (isize, isize);
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+/// Same as [`Point`] but unsigned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UPoint(pub (usize, usize));
+
+impl UPoint {
+    pub const fn new(x: usize, y: usize) -> Self {
+        Self((x, y))
+    }
+
+    pub const fn x(&self) -> usize {
+        self.0.0
+    }
+
+    pub const fn y(&self) -> usize {
+        self.0.1
+    }
+}
+
+impl Deref for UPoint {
+    type Target = (usize, usize);
     fn deref(&self) -> &Self::Target {
         &self.0
     }

@@ -80,7 +80,7 @@ fn handle_create_window(
     request: CreateWindow,
 ) -> Result<Response, ResponseError> {
     let shm_key = request.shm_key();
-    let object = shm_objects
+    let shm_object = shm_objects
         .get(&shm_key)
         .ok_or(ResponseError::InvalidShmKey)?
         .clone();
@@ -99,10 +99,10 @@ fn handle_create_window(
         width,
         height,
         Pixel::NONE,
-        object,
         flags,
+        Some((shm_object, pipe.clone())),
     )
-    .with_com_pipe(pipe.clone());
+    .ok_or(ResponseError::SharedObjectTooSmall)?;
 
     let mut kind = WindowKind::Normal;
     if flags.contains(WindowFlags::BG_WINDOW) {

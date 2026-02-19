@@ -28,22 +28,118 @@ use crate::{
     framebuffer::{self, BG_PIXEL, FB_INFO, Framebuffer, Pixel},
     shm::SharedObject,
     window::{
-        decorations::WindowDecorations,
+        decorations::WindowDecorationsMeta,
         primitive::{
-            DamageRegion, IntersectionPoint, Point, Rect, TransformRect, WindowDamageReason,
+            DamageRegion, IntersectionPoint, Point, Rect, TransformRect, UPoint, WindowDamageReason,
         },
     },
 };
 
-// a Rectangle
-pub struct Window {
-    rect: TransformRect,
+/// Describes resources for a shared window with another program.
+pub struct SharedWindow {
+    border: Option<WindowDecorationsMeta>,
     /// The pixels of the window, safe to use because they live as long as the window itself.
     pixels: NonNull<[Pixel]>,
+    bounds: Rect,
     _shm_object: Arc<SharedObject>,
-    com_pipe: Option<Arc<ClientComPipe>>,
-    decorations: Option<WindowDecorations>,
+    com_pipe: Arc<ClientComPipe>,
+}
 
+impl SharedWindow {
+    #[must_use = "Returns the damaged region within the window if it exists"]
+    #[inline]
+    /// Synchronizes pixels from the shared buffer to the given buffer, given a sync area to sync within.
+    fn sync_pixels_to(
+        &self,
+        dst: &mut [Pixel],
+        sync_x: usize,
+        sync_y: usize,
+        sync_width: usize,
+        sync_height: usize,
+    ) -> Option<(UPoint, Rect)> {
+        let max_height = self.bounds.height();
+        let max_width = self.bounds.width();
+
+        if sync_y >= max_height || sync_x >= max_width {
+            return None;
+        }
+
+        let width = (max_width - sync_x).min(sync_width);
+        let height = (max_height - sync_y).min(sync_height);
+        let sync_bounds = Rect::new(width, height);
+
+        let location = WindowDecorationsMeta::copy_pixels(
+            self.border.as_ref(),
+            unsafe { self.pixels.as_ref() },
+            dst,
+            sync_bounds,
+            sync_x,
+            sync_y,
+            self.bounds,
+        );
+
+        Some((location, sync_bounds))
+    }
+    /// Allocates a user interface for the window.
+    ///
+    /// Returns None if the SHM object is too small to hold window data.
+    fn create(
+        win_bounds: Rect,
+        shm_object: Arc<SharedObject>,
+        com_pipe: Arc<ClientComPipe>,
+        decorate: bool,
+        fill_with: Pixel,
+    ) -> Option<(Self, Box<[Pixel]>, Rect, Point)> {
+        let width = win_bounds.width();
+        let height = win_bounds.height();
+        let pixels_ptr = shm_object.data_inner();
+        if !(width * height * size_of::<Pixel>() <= pixels_ptr.len()) {
+            return None;
+        }
+        let mut pixels = NonNull::slice_from_raw_parts(pixels_ptr.cast::<Pixel>(), width * height);
+
+        unsafe {
+            pixels.as_mut().fill(fill_with);
+        }
+
+        let border;
+        let win_wm_pixels;
+        let actual_bounds;
+        let anchor;
+        if decorate {
+            let (borders, back_pixels, bounds, anchor_by) =
+                WindowDecorationsMeta::new(win_bounds, fill_with);
+            border = Some(borders);
+            win_wm_pixels = back_pixels;
+            actual_bounds = bounds;
+            anchor = anchor_by;
+        } else {
+            border = None;
+            win_wm_pixels = vec![fill_with; width * height].into_boxed_slice();
+            actual_bounds = win_bounds;
+            anchor = Point::new(0, 0);
+        }
+
+        Some((
+            SharedWindow {
+                pixels,
+                _shm_object: shm_object,
+                com_pipe,
+                border,
+                bounds: win_bounds,
+            },
+            win_wm_pixels,
+            actual_bounds,
+            anchor,
+        ))
+    }
+}
+
+/// A Rectangle
+pub struct Window {
+    rect: TransformRect,
+    pixels: Box<[Pixel]>,
+    shared_resources: Option<SharedWindow>,
     icon: Option<IconID>,
     name: Name,
     flags: WindowFlags,
@@ -132,17 +228,18 @@ impl Window {
         self.status
     }
 
-    /// Returns a new instance of the Window with the given command pipe to send events to.
-    pub fn with_com_pipe(mut self, com_pipe: Arc<ClientComPipe>) -> Self {
-        self.com_pipe = Some(com_pipe);
-        self
-    }
+    // /// Returns a new instance of the Window with the given command pipe to send events to.
+    // pub fn with_com_pipe(mut self, com_pipe: Arc<ClientComPipe>) -> Self {
+    //     self.com_pipe = Some(com_pipe);
+    //     self
+    // }
+    //
 
     /// Sends an event to the client that owns this window.
     fn send_event_inner(&self, event: Event) {
         let message = Message::new_event(event);
-        if let Some(com_pipe) = &self.com_pipe {
-            if let Err(err) = com_pipe.sender().send_message_raw(&message)
+        if let Some(int) = &self.shared_resources {
+            if let Err(err) = int.com_pipe.sender().send_message_raw(&message)
                 && err.kind() != ErrorKind::ConnectionAborted
                 && err.kind() != ErrorKind::ConnectionReset
             {
@@ -167,11 +264,6 @@ impl Window {
         pos_y: isize,
         image: BMPImage,
     ) -> Window {
-        let width = image.width() as usize;
-        let height = image.height() as usize;
-        let shm_object = SharedObject::allocate(width * height * size_of::<Pixel>())
-            .expect("Failed to allocate space for bitmap image");
-
         Self::new_from_pixels(
             name,
             icon,
@@ -179,11 +271,9 @@ impl Window {
             pos_y,
             image.width() as usize,
             image.height() as usize,
-            Arc::new(shm_object),
             image
                 .pixels()
                 .map(|c| Pixel::rgb(c.red(), c.green(), c.blue()).with_alpha(c.alpha())),
-            None,
         )
     }
 
@@ -195,44 +285,24 @@ impl Window {
         y: isize,
         width: usize,
         height: usize,
-        shm_object: Arc<SharedObject>,
         fill_pixels: impl ExactSizeIterator + Iterator<Item = Pixel>,
-        decorations: Option<WindowDecorations>,
     ) -> Window {
-        let pixels_ptr = shm_object.data_inner();
-        assert!(
-            width * height * size_of::<Pixel>() <= pixels_ptr.len(),
-            "Given SHM Object has too little space"
-        );
-
-        let mut pixels = NonNull::slice_from_raw_parts(pixels_ptr.cast::<Pixel>(), width * height);
-        let pixels_mut = unsafe { pixels.as_mut() };
-
-        assert_eq!(
-            pixels.len(),
-            fill_pixels.len(),
-            "The pixels to fill with must have a length of width*height"
-        );
+        let mut pixels = vec![Pixel::NONE; width * height];
 
         let fill_pixels = fill_pixels.enumerate();
         for (i, pi) in fill_pixels {
-            pixels_mut[i] = pi;
+            pixels[i] = pi;
         }
 
-        let rect = TransformRect {
-            position: Point::new(x, y),
-            rect: Rect::new(width, height),
-            damage_reason: None,
-        };
+        let rect = TransformRect::new(Point::new(x, y), Rect::new(width, height));
 
         Window::new_inner(
             name,
             icon,
             rect,
-            shm_object,
-            pixels,
+            pixels.into_boxed_slice(),
             WindowFlags::empty(),
-            decorations,
+            None,
         )
     }
 
@@ -245,54 +315,56 @@ impl Window {
         width: usize,
         height: usize,
         pixel: Pixel,
-        shm_object: Arc<SharedObject>,
         flags: WindowFlags,
-    ) -> Self {
-        let rect = TransformRect {
-            position: Point::new(x, y),
-            rect: Rect::new(width, height),
-            damage_reason: None,
-        };
-        let pixels_ptr = shm_object.data_inner();
-        assert!(
-            width * height * size_of::<Pixel>() <= pixels_ptr.len(),
-            "Given SHM Object has too little space"
-        );
+        shared: Option<(Arc<SharedObject>, Arc<ClientComPipe>)>,
+    ) -> Option<Self> {
+        let bounds_rect;
+        let pixels;
+        let shared_resources;
+        let anchor;
 
-        let mut pixels = NonNull::slice_from_raw_parts(pixels_ptr.cast::<Pixel>(), width * height);
-        unsafe { pixels.as_mut().fill(pixel) };
+        if let Some((shm_object, com_pipe)) = shared {
+            let win_bounds = Rect::new(width, height);
+            let decorate = !flags.contains(WindowFlags::NO_DECORATIONS);
+            let (sh, r_pixels, r_bounds, r_anchor) =
+                SharedWindow::create(win_bounds, shm_object, com_pipe, decorate, pixel)?;
+            pixels = r_pixels;
+            shared_resources = Some(sh);
+            bounds_rect = r_bounds;
+            anchor = r_anchor;
+        } else {
+            shared_resources = None;
+            bounds_rect = Rect::new(width, height);
+            anchor = Point::new(0, 0);
+            pixels = vec![pixel; width * height].into_boxed_slice();
+        }
 
-        Window::new_inner(
+        Some(Window::new_inner(
             name,
             icon,
-            rect,
-            shm_object,
+            TransformRect::new(Point::new(x, y) + anchor, bounds_rect),
             pixels,
             flags,
-            (!flags.contains(WindowFlags::NO_DECORATIONS))
-                .then(|| WindowDecorations::new_default(&rect.rect)),
-        )
+            shared_resources,
+        ))
     }
 
     fn new_inner(
         name: Name,
         icon: Option<IconID>,
         rect: TransformRect,
-        shm_object: Arc<SharedObject>,
-        pixels: NonNull<[Pixel]>,
+        pixels: Box<[Pixel]>,
         flags: WindowFlags,
-        decorations: Option<WindowDecorations>,
+        shared_resources: Option<SharedWindow>,
     ) -> Self {
         Self {
             rect,
             pixels,
-            _shm_object: shm_object,
-            com_pipe: None,
             icon,
             name,
+            shared_resources,
             status: WindowStatus::empty(),
             flags,
-            decorations,
         }
     }
 
@@ -300,29 +372,19 @@ impl Window {
     ///
     /// [`fb.sync_pixels_rect`] must be called afterwards on the area the window is in.
     fn fix(&mut self, fb: &mut Framebuffer, damages: &[DamageRegion]) {
-        let pixels = unsafe { self.pixels.as_mut() };
+        let pixels = &mut self.pixels;
 
-        if let Some(ref decor) = self.decorations {
-            decor.on_window_fix(fb, &self.rect, damages, pixels, |fb, win_point, pixels| {
-                self.rect.draw_at(fb, win_point, pixels)
-            });
-        } else {
-            let win_point = damages
-                .iter()
-                .filter_map(|d| d.overlaps_with(&self.rect))
-                .sum();
-            if win_point != IntersectionPoint::none() {
-                self.rect.draw_at(fb, win_point, pixels)
-            }
+        let win_point = damages
+            .iter()
+            .filter_map(|d| d.overlaps_with(&self.rect))
+            .sum();
+        if win_point != IntersectionPoint::none() {
+            self.rect.draw_at(fb, win_point, pixels)
         }
     }
 
     fn get_whole_damage(&self) -> DamageRegion {
-        if let Some(ref decor) = self.decorations {
-            decor.get_whole_damage(self.rect.position)
-        } else {
-            self.rect.get_whole_damage()
-        }
+        self.rect.get_whole_damage()
     }
 
     fn damage_whole(&mut self) {
@@ -683,13 +745,24 @@ impl Windows {
     pub fn damage_window(
         &mut self,
         win_id: WinID,
-        x: usize,
-        y: usize,
-        width: usize,
-        height: usize,
+        mut x: usize,
+        mut y: usize,
+        mut width: usize,
+        mut height: usize,
         waker: Option<&Waker>,
     ) -> Result<(), ()> {
         let (win, _) = self.windows.get_mut(&win_id).ok_or(())?;
+
+        if let Some(sh) = win.shared_resources.as_ref() {
+            if let Some((loc, bounds)) = sh.sync_pixels_to(&mut win.pixels, x, y, width, height) {
+                x = loc.x();
+                y = loc.y();
+                width = bounds.width();
+                height = bounds.height();
+            } else {
+                return Ok(());
+            }
+        }
         win.damage_within(x, y, width, height);
 
         if let Some(waker) = waker {

@@ -1,9 +1,6 @@
 use libopal::window::Pixel;
 
-use crate::{
-    framebuffer::Framebuffer,
-    window::primitive::{DamageRegion, IntersectionPoint, Point, Rect, TransformRect},
-};
+use crate::window::primitive::{Point, Rect, UPoint};
 
 #[derive(Debug, Clone, Copy)]
 pub enum DrawVerb {
@@ -58,163 +55,14 @@ impl CachedDrawing {
         self.add_area(point, rect);
     }
 
-    fn add_rect_points(&mut self, point0: Point, point1: Point, color: Pixel) {
-        let f_x = point0.x().min(point1.x());
-        let f_y = point0.y().min(point1.y());
-
-        let l_x = point0.x().max(point1.x());
-        let l_y = point0.y().max(point1.y());
-
-        let width = (l_x - f_x + 1) as usize;
-        let height = (l_y - f_y + 1) as usize;
-        if width == 0 || height == 0 {
-            return;
-        }
-
-        if point0 == point1 {
-            return self.add_point(point0, color);
-        }
-
-        let point = Point::new(f_x, f_y);
-        let rect = Rect::new(width, height);
-
-        return self.add_rect(point, rect, color);
-    }
-
-    fn add_round_corners(
-        &mut self,
-        to_rect: Rect,
-        radius: u32,
-        corner_mask: (bool, bool, bool, bool),
-        color: Option<Pixel>,
-        connect_with: Option<Pixel>,
-    ) {
-        let radius = radius as isize;
-        // Draws two corners of a rounded rectangle, and then connects them with a line of a color got by the function get_color
-        let mut draw_2corners =
-            |s_x0: isize, s_x1: isize, s_y: isize, top: bool, mask: (bool, bool)| {
-                let (draw_left, draw_right) = mask;
-                let x0 = s_x0 + (radius * 2);
-                let x1 = s_x1 + (radius * 2);
-
-                let y = s_y + (radius * 2);
-
-                let mut f = 1 - radius as i32;
-                let mut ddf_x = 1;
-                let mut ddf_y = -2 * radius as i32;
-
-                let mut xx = 0isize;
-                let mut yy = radius as isize;
-
-                while xx < yy {
-                    let last_xx = xx;
-                    let last_yy = yy;
-
-                    if f >= 0 {
-                        yy -= 1;
-                        ddf_y += 2;
-                        f += ddf_y;
-                    }
-
-                    xx += 1;
-                    ddf_x += 2;
-                    f += ddf_x;
-
-                    let radius = radius as isize;
-                    let draw_y = if !top {
-                        y + yy - radius
-                    } else {
-                        y - yy - radius
-                    };
-                    let draw_y_flipped = if !top {
-                        y + xx - radius
-                    } else {
-                        y - xx - radius
-                    };
-
-                    let d_x0 = x0 - xx - radius;
-                    let point0 = Point::new(d_x0, draw_y as isize);
-                    let f_d_x0 = x0 - yy - radius;
-                    let point0_flipped = Point::new(f_d_x0, draw_y_flipped as isize);
-
-                    let d_x1 = x1 + xx - radius;
-                    let point1 = Point::new(d_x1, draw_y as isize);
-                    let f_d_x1 = x1 + yy - radius;
-                    let point1_flipped = Point::new(f_d_x1, draw_y_flipped as isize);
-
-                    if draw_left {
-                        if let Some(color) = color {
-                            self.add_point(point0, color);
-                            self.add_point(point0_flipped, color);
-                        } else {
-                            // Bottom or Top left corner
-                            self.add_rect_points(Point::new(s_x0, draw_y), point0, Pixel::NONE);
-                            self.add_rect_points(
-                                Point::new(s_x0, draw_y_flipped),
-                                point0_flipped,
-                                Pixel::NONE,
-                            );
-                        }
-                    }
-
-                    if draw_right {
-                        if let Some(color) = color {
-                            self.add_point(point1, color);
-                            self.add_point(point1_flipped, color);
-                        } else {
-                            // Bottom or Top right corner
-                            self.add_rect_points(Point::new(x1, draw_y), point1, Pixel::NONE);
-                            self.add_rect_points(
-                                Point::new(x1, draw_y_flipped),
-                                point1_flipped,
-                                Pixel::NONE,
-                            );
-                        }
-
-                        if let Some(connect_with) = connect_with {
-                            // Draw the fill
-                            // not flipped
-                            if yy != last_yy {
-                                self.add_rect_points(point0, point1, connect_with);
-                            }
-
-                            // flipped
-                            if xx != last_xx {
-                                self.add_rect_points(point0_flipped, point1_flipped, connect_with);
-                            }
-                        }
-                        // Bottom or Top right corner
-                        // self.add_rect_points(Point::new(x1, draw_y), point1, color);
-                        // self.add_rect_points(Point::new(x1, draw_y_flipped), point1_flipped, color);
-                    }
-                }
-            };
-        let x0 = 0;
-        let y0 = 0;
-        let x1 = (x0 + to_rect.width as isize) - 1;
-        let y1 = (y0 + to_rect.height as isize) - 1;
-
-        let (left, right, top, bottom) = corner_mask;
-        if top {
-            draw_2corners(x0, x1 - (radius * 2), y0, true, (left, right));
-        }
-        if bottom {
-            draw_2corners(
-                x0,
-                x1 - (radius * 2),
-                y1 - (radius * 2),
-                false,
-                (left, right),
-            );
-        }
-    }
-
     fn apply_on(&self, bounds: Rect, pixels: &mut [Pixel]) {
         for verb in &*self.verbs {
             match verb {
                 DrawVerb::DrawPoint(at, pixel) => {
                     let index = (at.y() * bounds.width as isize) + at.x();
-                    pixels[index as usize] = *pixel;
+                    if index >= 0 && index < pixels.len() as isize {
+                        pixels[index as usize] = *pixel;
+                    }
                 }
                 DrawVerb::DrawRect(at, rect, pixel) => {
                     let x = at.x() as usize;
@@ -233,224 +81,197 @@ impl CachedDrawing {
     }
 }
 
-#[derive(Debug)]
-struct WindowAttachment {
-    /// Placement from within the window
-    placement: Point,
-    bounds: Rect,
-    damage_bounds: [(Point, Rect); 4],
-    pixels: Box<[Pixel]>,
-    mask: Vec<(Point, Rect)>,
+#[derive(Debug, Clone)]
+pub struct WindowDecorationsMeta {
+    /// Each element is a [Y] => (K) where K is the amount of pixels to cut from each side.
+    /// for the top `radius` rows, Y represents the Y coordinate of the row (Y = y if y < radius).
+    ///
+    /// for the bottom `radius` rows for each y, Y = height - y (if y > height - radius)
+    corner_mask_span: Box<[usize]>,
+    corner_radius: u32,
 }
 
-impl WindowAttachment {
-    const fn damage(&self, offset_from: Point) -> DamageRegion {
-        let position = Point::new(
-            self.placement.x() + offset_from.x(),
-            self.placement.y() + offset_from.y(),
-        );
-        DamageRegion {
-            position,
-            rect: self.bounds,
+impl WindowDecorationsMeta {
+    /// Copies pixels from a region within src to dst (if dst has a border).
+    ///
+    /// `bounds_in_src` is the bounds of the region within src
+    /// `offset` is the offset of the region within src
+    /// `src_dst_bounds` is the bounds of both src and dst, without the border
+    pub fn copy_pixels(
+        border: Option<&Self>,
+        src: &[Pixel],
+        dst: &mut [Pixel],
+        bounds_in_src: Rect,
+        src_x: usize,
+        src_y: usize,
+        src_dst_bounds: Rect,
+    ) -> UPoint {
+        let target_height = bounds_in_src.height();
+        let target_width = bounds_in_src.width();
+
+        let bounds = src_dst_bounds;
+        let src_width = bounds.width;
+        let dst_width;
+        let dst_height;
+
+        let x_diff;
+        let y_diff;
+        if border.is_some() {
+            x_diff = 1;
+            y_diff = 1;
+            dst_width = bounds.width() + 2;
+            dst_height = bounds.height() + 2;
+        } else {
+            x_diff = 0;
+            y_diff = 0;
+            dst_width = bounds.width();
+            dst_height = bounds.height();
         }
+
+        let dst_x = src_x + x_diff;
+        for y in src_y..(src_y + target_height) {
+            let dst_y = y + y_diff;
+            let mut r_src_x = src_x;
+            let mut r_dst_x = dst_x;
+            let mut r_target_width = target_width;
+
+            // Skip corner mask pixels
+            if let Some(border) = border
+                && border.corner_radius > 0
+            {
+                let radius = border.corner_radius as usize;
+                let corner_mask = &border.corner_mask_span;
+
+                let skip;
+                if dst_y < radius {
+                    skip = Some(corner_mask[dst_y]);
+                } else if dst_y >= dst_height - radius {
+                    skip = Some(corner_mask[dst_height - dst_y - 1]);
+                } else {
+                    skip = None;
+                }
+
+                if let Some(skip) = skip
+                    && skip >= x_diff
+                {
+                    r_src_x = r_src_x.max(skip - x_diff);
+                    r_target_width = target_width.min(src_width - r_src_x - (skip - x_diff));
+                    r_dst_x = r_dst_x.max(skip);
+                }
+            }
+
+            let src_start = (y * src_width) + r_src_x;
+            let src_end = src_start + r_target_width;
+
+            let dst_start = (dst_y * dst_width) + r_dst_x;
+            let dst_end = dst_start + r_target_width;
+            dst[dst_start..dst_end].copy_from_slice(&src[src_start..src_end]);
+        }
+        UPoint::new(src_x + x_diff, src_y + y_diff)
     }
-    pub fn new_border_for(win_bounds: &Rect, radius: u32, border_color: Pixel) -> Self {
-        let bounds = Rect::new(win_bounds.width + 2, win_bounds.height + 2);
-        let diameter = (radius * 2) as usize;
+    pub fn new(bounds: Rect, fill_with: Pixel) -> (Self, Box<[Pixel]>, Rect, Point) {
+        Self::new_inner(bounds, 8, fill_with, Pixel::rgb(0xFD, 0xB0, 0xC0))
+    }
+
+    fn new_inner(
+        bounds: Rect,
+        corner_radius: u32,
+        fill_with: Pixel,
+        border_color: Pixel,
+    ) -> (Self, Box<[Pixel]>, Rect, Point) {
+        let width = bounds.width + 2;
+        let height = bounds.height + 2;
+        let mut pixels = vec![fill_with; width * height].into_boxed_slice();
+        let diameter = (corner_radius * 2) as usize;
+
         let mut rendering = CachedDrawing::new();
 
-        rendering.add_rect(
-            Point::new(0, radius as isize),
-            Rect::new(1, bounds.height - diameter),
-            border_color,
-        );
-        rendering.add_rect(
-            Point::new(bounds.width as isize - 1, radius as isize),
-            Rect::new(1, bounds.height - diameter),
-            border_color,
-        );
+        // Each element is a [Y] => (K) where K is the amount of pixels to cut from each side.
+        // for the top `radius` rows, Y represents the Y coordinate of the row (Y = y if y < radius).
+        //
+        // for the bottom `radius` rows for each y, Y = height - y (if y > height - radius)
+        let mut corner_mask_span = vec![0usize; corner_radius as usize].into_boxed_slice();
 
-        rendering.add_rect(
-            Point::new(radius as isize, 0),
-            Rect::new(bounds.width - diameter, 1),
-            border_color,
-        );
+        // Math to mask rounded corners
+        // (Thanks to sasdallas for code I stole, kinda)
+        let f_radius = corner_radius as f32;
+        let radius = corner_radius as isize;
+        for dy in 0..radius {
+            for dx in 0..radius {
+                let dist_sq = dx * dx + dy * dy;
+                if dist_sq <= radius * radius && dist_sq >= (radius - 1) * (radius - 1) {
+                    let dist = (dist_sq as f32).sqrt();
 
-        rendering.add_rect(
-            Point::new(radius as isize, bounds.height as isize - 1),
-            Rect::new(bounds.width - diameter, 1),
-            border_color,
-        );
-        rendering.add_round_corners(
-            bounds,
-            radius,
-            (true, true, true, true),
-            Some(border_color),
-            None,
-        );
+                    // anti-aliasing I think
+                    let alpha = if dist > f_radius - 1.0 {
+                        1.0 - (dist - (f_radius - 1.0)).max(0.0)
+                    } else {
+                        1.0
+                    };
 
-        let mut pixels = vec![Pixel::NONE; bounds.width * bounds.height].into_boxed_slice();
-        rendering.apply_on(bounds, &mut pixels);
+                    let alpha_u8 = (alpha * 255.0) as u8;
+                    let color = Pixel::rgba(
+                        border_color.r(),
+                        border_color.g(),
+                        border_color.b(),
+                        alpha_u8,
+                    );
 
-        let mut removal_mask = Vec::new();
+                    let x = radius - dx - 1;
+                    let y = radius - dy - 1;
+                    let x2 = width as isize - radius + dx;
+                    let y2 = height as isize - radius + dy;
 
-        let mut f = |start: usize, end: usize| {
-            for row in 0..bounds.height {
-                let iter: &mut dyn Iterator<Item = usize> = if start < end {
-                    &mut (start..end)
-                } else {
-                    &mut (end..=start).rev()
-                };
+                    rendering.add_point(Point::new(x, y), color);
+                    rendering.add_point(Point::new(x2, y), color);
+                    rendering.add_point(Point::new(x, y2), color);
+                    rendering.add_point(Point::new(x2, y2), color);
 
-                for col in iter {
-                    let index = (row * bounds.width) + col;
-                    if pixels[index].a() != 0 {
-                        if col != start {
-                            let rect = Rect::new(col.abs_diff(start), 1);
-                            let point = Point::new(col.min(start) as isize, row as isize);
-                            removal_mask.push((point, rect));
-                        }
-
-                        break;
+                    if y >= 0 {
+                        let skip = corner_mask_span[y as usize].max(
+                            ((x + 1).is_positive())
+                                .then(|| (x + 1) as usize)
+                                .unwrap_or(0),
+                        );
+                        corner_mask_span[y as usize] = skip;
                     }
                 }
             }
-        };
+        }
 
-        f(0, bounds.width);
-        f(bounds.width - 1, 0);
+        rendering.add_rect(
+            Point::new(0, corner_radius as isize),
+            Rect::new(1, height - diameter),
+            border_color,
+        );
+        rendering.add_rect(
+            Point::new(width as isize - 1, corner_radius as isize),
+            Rect::new(1, height - diameter),
+            border_color,
+        );
 
-        Self {
-            placement: Point::new(-1, -1),
-            bounds,
-            damage_bounds: [
-                (Point::new(0, 0), Rect::new(diameter, bounds.height)),
-                (Point::new(0, 0), Rect::new(bounds.width, diameter)),
-                (
-                    Point::new((bounds.width - diameter) as isize, 0),
-                    Rect::new(diameter, bounds.height),
-                ),
-                (
-                    Point::new(0, (bounds.height - diameter) as isize),
-                    Rect::new(bounds.width, diameter),
-                ),
-            ],
-            mask: removal_mask,
+        rendering.add_rect(
+            Point::new(corner_radius as isize, 0),
+            Rect::new(width - diameter, 1),
+            border_color,
+        );
+
+        rendering.add_rect(
+            Point::new(corner_radius as isize, height as isize - 1),
+            Rect::new(width - diameter, 1),
+            border_color,
+        );
+
+        let bordered_bounds = Rect::new(width, height);
+        rendering.apply_on(bordered_bounds, &mut pixels);
+        (
+            Self {
+                corner_mask_span,
+                corner_radius,
+            },
             pixels,
-        }
-    }
-}
-
-pub struct WindowDecorations {
-    border: WindowAttachment,
-}
-
-impl WindowDecorations {
-    pub fn get_whole_damage(&self, position: Point) -> DamageRegion {
-        self.border.damage(position)
-    }
-    pub fn new_default(bounds: &Rect) -> Self {
-        Self {
-            border: WindowAttachment::new_border_for(bounds, 8, Pixel::rgb(0xFD, 0xB0, 0xC0)),
-        }
-    }
-
-    #[inline]
-    /// Applies decorations on window fix
-    pub fn on_window_fix(
-        &self,
-        fb: &mut Framebuffer,
-        window_rect: &TransformRect,
-        damage: &[DamageRegion],
-        pixels: &mut [Pixel],
-        window_fix_f: impl FnOnce(&mut Framebuffer, IntersectionPoint, &[Pixel]),
-    ) {
-        let win_bounds = window_rect.rect;
-        let mut round_corners = || {
-            for (point, area) in &*self.border.mask {
-                let mut width = area.width;
-                let mut height = area.height;
-
-                let rel_point = self.border.placement + *point;
-                let mut x = rel_point.x();
-                let mut y = rel_point.y();
-
-                if x.is_negative() {
-                    if let Some(w) = width.checked_add_signed(x) {
-                        width = w;
-                        x = 0;
-                    } else {
-                        continue;
-                    }
-                }
-
-                if y.is_negative() {
-                    if let Some(h) = height.checked_add_signed(y) {
-                        height = h;
-                        y = 0;
-                    } else {
-                        continue;
-                    }
-                }
-
-                if y as usize > win_bounds.height || x as usize > win_bounds.width {
-                    continue;
-                }
-
-                let x = x as usize;
-                let y = y as usize;
-                width = width.min(win_bounds.width - x);
-                height = height.min(win_bounds.height - y);
-
-                for row in 0..height {
-                    let start = ((row + y) * win_bounds.width) + x;
-                    let end = start + width;
-
-                    pixels[start..end].fill(Pixel::NONE);
-                }
-            }
-        };
-
-        let border_place = self.border.placement + window_rect.position();
-        let border_rect = TransformRect::new(border_place, self.border.bounds);
-
-        let mut border_intersections = [IntersectionPoint::none(); 4];
-        let mut win_inter = IntersectionPoint::none();
-        let mut in_border = false;
-
-        for damage in damage {
-            for (index, (point, area)) in self.border.damage_bounds.iter().enumerate() {
-                let rect = TransformRect::new((*point) + border_place, *area);
-                if let Some(inter) = damage.overlaps_with(&rect) {
-                    let (i_point, i_area) = inter.to_rect();
-                    let rel_point = i_point + *point;
-                    let rel_inter = IntersectionPoint::from_rect(rel_point, i_area);
-
-                    border_intersections[index] = border_intersections[index] + rel_inter;
-                    in_border = true;
-                }
-            }
-
-            if let Some(inter) = damage.overlaps_with(window_rect) {
-                win_inter = win_inter + inter;
-            }
-        }
-
-        if win_inter != IntersectionPoint::none() {
-            if in_border {
-                round_corners();
-            }
-
-            window_fix_f(fb, win_inter, pixels);
-        }
-
-        if in_border {
-            for inter in border_intersections
-                .iter()
-                .filter(|i| **i != IntersectionPoint::none())
-            {
-                border_rect.draw_at(fb, *inter, &self.border.pixels);
-            }
-        }
+            bordered_bounds,
+            Point::new(-1, -1),
+        )
     }
 }

@@ -21,6 +21,7 @@ pub mod shm;
 pub mod window;
 
 pub use opal_abi::defs;
+pub use opal_abi::display;
 pub use opal_abi::msg::OpalV1;
 pub use opal_abi::msg::event;
 pub use opal_abi::msg::event::WindowEvent;
