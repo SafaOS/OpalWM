@@ -102,6 +102,16 @@ pub trait ShardsExt<Ctx: AppCtx>: Sized + Shard<Ctx> {
         }
     }
 
+    fn on_msg<F: FnMut(&mut Ctx, &Ctx::Message, &mut Self) + 'static>(
+        self,
+        f: F,
+    ) -> OnMessage<Ctx, Self> {
+        OnMessage {
+            shard: self,
+            action: Box::new(f),
+        }
+    }
+
     /// Fixes the width of the shard.
     fn fix_width(self, width: f32) -> SizedBox<Self> {
         SizedBox {
@@ -290,6 +300,35 @@ impl<Ctx: AppCtx, S: Shard<Ctx>> ExtShard<Ctx, S> for OnUpdate<Ctx, S> {
 
 impl_deref!(OnUpdate<Ctx, S>, S, Ctx: AppCtx, S: Shard<Ctx>);
 ext_impl!(OnUpdate<Ctx, S>, S: Shard<Ctx>);
+
+/// Represents an action that can be performed when a Message is received.
+pub struct OnMessage<Ctx: AppCtx, S: Shard<Ctx>> {
+    shard: S,
+    action: Box<dyn FnMut(&mut Ctx, &Ctx::Message, &mut S) + 'static>,
+}
+
+impl<Ctx: AppCtx, S: Shard<Ctx>> ExtShard<Ctx, S> for OnMessage<Ctx, S> {
+    fn inner(&self) -> &S {
+        &self.shard
+    }
+    fn inner_mut(&mut self) -> &mut S {
+        &mut self.shard
+    }
+
+    fn on_message(
+        &mut self,
+        layout: &ShardLayout,
+        pos: Point,
+        context: &mut Ctx,
+        message: &<Ctx as AppCtx>::Message,
+    ) {
+        (self.action)(context, message, &mut self.shard);
+        self.shard.on_message(layout, pos, context, message);
+    }
+}
+
+impl_deref!(OnMessage<Ctx, S>, S, Ctx: AppCtx, S: Shard<Ctx>);
+ext_impl!(OnMessage<Ctx, S>, S: Shard<Ctx>);
 
 /// a Shard that is equalivent to [`S`], but instead of re-drawing the shard every render, it's pixels is cached and copied.
 pub struct CachedShard<S: ?Sized> {
