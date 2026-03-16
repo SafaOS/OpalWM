@@ -29,8 +29,31 @@ impl<Ctx: AppCtx> Label<Ctx> {
     }
 
     #[inline]
+    pub fn set_text(&mut self, text: impl AsRef<str>) -> &mut Self {
+        if &*self.text != text.as_ref() {
+            self.text = text.as_ref().into();
+            self.text_changed = true;
+        }
+
+        self
+    }
+
+    #[inline]
+    pub fn with_color(mut self, color: Color) -> Self {
+        self.brush = PaintBrush::Color(color);
+        self
+    }
+
+    #[inline]
     pub fn with_attrs(mut self, attrs: Attrs<'static>) -> Self {
         self.attrs = attrs;
+        self
+    }
+
+    #[inline]
+    pub fn with_metrics(mut self, metrics: Metrics) -> Self {
+        self.buffer = Buffer::new_empty(metrics);
+        self.text_changed = true;
         self
     }
 

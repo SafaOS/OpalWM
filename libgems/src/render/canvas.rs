@@ -193,7 +193,7 @@ pub struct TinySkiaCanvas {
 impl TinySkiaCanvas {
     pub fn new(width: u32, height: u32) -> Self {
         Self {
-            pixmap: Pixmap::new(width, height).expect("Failed to construct Pixmap"),
+            pixmap: Pixmap::new(width.max(1), height.max(1)).expect("Failed to construct Pixmap"),
         }
     }
 

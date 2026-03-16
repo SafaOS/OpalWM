@@ -8,5 +8,6 @@ mod env;
 mod theme;
 mod window;
 pub use app::*;
+pub use cosmic_text;
 pub use env::*;
 pub use window::*;
