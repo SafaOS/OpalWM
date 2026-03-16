@@ -1,0 +1,96 @@
+use std::marker::PhantomData;
+
+use crate::{BoundingRect, Color, Padding};
+use cosmic_text::{Attrs, Buffer, Metrics};
+
+use crate::{AppCtx, render::PaintBrush, shards::Shard};
+
+#[derive(Debug, Clone)]
+pub struct Label<Ctx: AppCtx> {
+    buffer: Buffer,
+    text: String,
+    text_changed: bool,
+    brush: PaintBrush,
+    attrs: Attrs<'static>,
+    _ctx: PhantomData<Ctx>,
+}
+
+impl<Ctx: AppCtx> Label<Ctx> {
+    #[inline]
+    pub fn from_str(data: impl Into<String>) -> Self {
+        Self {
+            text: data.into(),
+            buffer: Buffer::new_empty(Metrics::relative(12., 1.)),
+            text_changed: true,
+            brush: PaintBrush::Color(Color::BLACK), /* todo environment themeing */
+            attrs: Attrs::new(),
+            _ctx: PhantomData,
+        }
+    }
+
+    #[inline]
+    pub fn with_attrs(mut self, attrs: Attrs<'static>) -> Self {
+        self.attrs = attrs;
+        self
+    }
+
+    fn height(&self) -> f32 {
+        self.buffer.layout_runs().map(|run| run.line_height).sum()
+    }
+
+    fn width(&self) -> f32 {
+        self.buffer
+            .layout_runs()
+            .map(|run| run.line_w)
+            .max_by(|x, y| x.partial_cmp(y).unwrap_or(core::cmp::Ordering::Equal))
+            .unwrap_or(0.)
+    }
+}
+
+impl<Ctx: AppCtx> Shard<Ctx> for Label<Ctx> {
+    fn dirty(&self) -> bool {
+        self.text_changed || self.buffer.redraw()
+    }
+
+    fn layout(&mut self, ctx: &mut super::LayoutCtx) -> super::ShardLayout {
+        let max_bounds = ctx.max_box();
+        let width = max_bounds.width();
+        let height = max_bounds.height();
+
+        let buffer = &mut self.buffer;
+        if self.text_changed {
+            buffer.set_text(
+                ctx.font_system(),
+                &self.text,
+                &self.attrs,
+                cosmic_text::Shaping::Advanced,
+            );
+
+            self.text_changed = false;
+        }
+
+        buffer.set_size(
+            ctx.font_system(),
+            width.is_finite().then_some(width),
+            height.is_finite().then_some(height),
+        );
+
+        let min_box = ctx.min_box();
+        let act_width = self.width().max(min_box.width());
+        let act_height = self.height().max(min_box.width());
+        super::ShardLayout {
+            bounds: BoundingRect::new(act_width, act_height),
+            padding: Padding::default(),
+            alignment: crate::Alignment::default(),
+        }
+    }
+
+    fn render(
+        &mut self,
+        ctx: &mut super::RenderCtx,
+    ) -> Option<(crate::Point, crate::BoundingRect)> {
+        ctx.fill_text(&self.brush, &self.buffer);
+        self.buffer.set_redraw(false);
+        None
+    }
+}
