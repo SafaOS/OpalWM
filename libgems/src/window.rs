@@ -1,6 +1,6 @@
 use libopal::{
     WindowEvent,
-    defs::{HeldMouseButtons, WindowFlags},
+    defs::{HeldMouseButtons, WindowFlags, WindowID},
     window::Pixel,
 };
 
@@ -64,6 +64,12 @@ pub struct Window<Ctx: AppCtx> {
 }
 
 impl<Ctx: AppCtx> Window<Ctx> {
+    /// Returns the Window ID of this Window.
+    #[inline]
+    pub fn win_id(&self) -> WindowID {
+        self.inner.id()
+    }
+
     fn new_with_root<Root: Shard<Ctx> + 'static>(
         inner: libopal::window::Window,
         root: Root,
@@ -142,26 +148,20 @@ impl<Ctx: AppCtx> Window<Ctx> {
     /// Broadcast's a message to the window's elements.
     pub fn broadcast_message(&mut self, state: &mut Ctx, msg: &Ctx::Message) {
         let constraints = self.constraints();
-        self.root.try_layout(
-            &mut LayoutCtx {
-                font_system: self.cache.font_system(),
-                constraints,
-            },
-            |_| {},
-        );
+        self.root.layout_if_none(&mut LayoutCtx {
+            font_system: self.cache.font_system(),
+            constraints,
+        });
         self.root.route_message(Point::default(), state, msg);
     }
 
     /// Broadcast's an event to the window's elements.
     pub fn broadcast_event(&mut self, app_state: &mut Ctx, event: WindowEvent) {
         let constraints = self.constraints();
-        self.root.try_layout(
-            &mut LayoutCtx {
-                font_system: self.cache.font_system(),
-                constraints,
-            },
-            |_| {},
-        );
+        self.root.layout_if_none(&mut LayoutCtx {
+            font_system: self.cache.font_system(),
+            constraints,
+        });
         EventCtx::with_event(
             &mut self.mouse_button_state,
             &mut self.mouse_position,
@@ -183,13 +183,10 @@ impl<Ctx: AppCtx> Window<Ctx> {
     /// Re-renders the window even if it isn't dirty, may be costy.
     pub fn redraw(&mut self) {
         let constraints = self.constraints();
-        self.root.layout(
-            &mut LayoutCtx {
-                font_system: self.cache.font_system(),
-                constraints,
-            },
-            |_| {},
-        );
+        self.root.layout(&mut LayoutCtx {
+            font_system: self.cache.font_system(),
+            constraints,
+        });
 
         match self.root.render_as_root(&mut self.cache) {
             None => {
