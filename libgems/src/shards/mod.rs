@@ -201,32 +201,22 @@ impl<Ctx: AppCtx> ShardNode<Ctx> {
         self.state.state_changed |= core::mem::replace(&mut self.origin, origin) != origin;
     }
 
-    /// Sets the layout of the shard.
-    pub fn layout(
-        &mut self,
-        ctx: &mut LayoutCtx,
-        with_new_layout: impl FnOnce(&mut ShardLayout),
-    ) -> (&mut ShardLayout, bool) {
-        let mut laid = self.shard.layout(ctx);
-        with_new_layout(&mut laid);
+    /// Prepares the layout of the shard.
+    pub fn layout(&mut self, ctx: &mut LayoutCtx) -> (&mut ShardLayout, bool) {
+        let laid = self.shard.layout(ctx);
 
-        let old_layout = self.layout.replace(laid);
-        let is_new = old_layout != Some(laid);
-
+        let is_new = self.layout != Some(laid);
         self.state.state_changed |= is_new;
 
-        (unsafe { self.layout.as_mut().unwrap_unchecked() }, is_new)
+        (self.layout.insert(laid), is_new)
     }
 
-    pub fn try_layout(
-        &mut self,
-        ctx: &mut LayoutCtx,
-        with_new_layout: impl FnOnce(&mut ShardLayout),
-    ) -> &ShardLayout {
-        if let Some(ref layout) = self.layout {
+    /// Same as [`Self::layout`] but is only executed if no layout is already set.
+    pub fn layout_if_none(&mut self, ctx: &mut LayoutCtx) -> &mut ShardLayout {
+        if let Some(ref mut layout) = self.layout {
             layout
         } else {
-            self.layout(ctx, with_new_layout).0
+            self.layout(ctx).0
         }
     }
 
@@ -299,6 +289,8 @@ impl<Ctx: AppCtx> ShardNode<Ctx> {
     }
 
     /// Routes a message to the shard.
+    ///
+    /// Requires [`Self::layout`] to be executed at least once.
     pub fn route_message(&mut self, anchor_by: Point, app_ctx: &mut Ctx, message: &Ctx::Message) {
         let layout = self
             .layout

@@ -8,6 +8,7 @@ use crate::{
     shards::Shard,
 };
 
+/// A Clickable button with a label.
 pub struct Button<Ctx: AppCtx> {
     label: CachedShard<Label<Ctx>>,
     label_layout: Option<ShardLayout>,

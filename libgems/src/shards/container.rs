@@ -130,6 +130,11 @@ impl<Ctx: AppCtx> Stack<Ctx> {
         self.display(self.display.align(alignment));
         self
     }
+    #[inline(always)]
+    pub fn with_items_align(mut self, alignment: Alignment) -> Self {
+        self.set_items_align(alignment);
+        self
+    }
 
     fn display(&mut self, display: Display) {
         if core::mem::replace(&mut self.display, display) != display {
@@ -230,18 +235,17 @@ impl<Ctx: AppCtx> Shard<Ctx> for Stack<Ctx> {
         for ele in self.elements.iter_mut() {
             let max_size = BoundingRect::new(ele_max_width, ele_max_height);
             ctx.with_constraints(BoundingConstraints::from_max(max_size), |ele_ctx| {
-                let (layout, is_new_layout) = ele.layout(ele_ctx, |new| {
-                    if new.alignment == Alignment::Default {
-                        new.alignment = default_alignment;
-                    }
-                });
-
-                if layout.bounds_with_padding().width() < ele_max_width {
-                    ele_max_width += ele_max_width - layout.bounds.width();
+                let (new_layout, is_new_layout) = ele.layout(ele_ctx);
+                if new_layout.alignment == Alignment::Default {
+                    new_layout.alignment = default_alignment;
                 }
 
-                if layout.bounds_with_padding().height() < ele_max_height {
-                    ele_max_height += ele_max_height - layout.bounds.height();
+                if new_layout.bounds_with_padding().width() < ele_max_width {
+                    ele_max_width += ele_max_width - new_layout.bounds.width();
+                }
+
+                if new_layout.bounds_with_padding().height() < ele_max_height {
+                    ele_max_height += ele_max_height - new_layout.bounds.height();
                 }
 
                 layout_changed |= is_new_layout;
