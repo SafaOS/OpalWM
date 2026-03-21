@@ -1,7 +1,9 @@
 use crate::{
     AppCtx, BoundingRect, EventCtx, Padding, Point, ShardEvent,
     render::{BoundingConstraints, PaintBrush, TinySkiaCanvas, shapes::Rect},
-    shards::{LayoutCtx, LifeCycleCtx, RenderCtx, Shard, ShardLayout, lifecycle::LifeCycle},
+    shards::{
+        AxisAlign, LayoutCtx, LifeCycleCtx, RenderCtx, Shard, ShardLayout, lifecycle::LifeCycle,
+    },
 };
 
 trait ExtShard<Ctx: AppCtx, Inner: Shard<Ctx> + ?Sized> {
@@ -162,6 +164,11 @@ pub trait ShardsExt<Ctx: AppCtx>: Sized + Shard<Ctx> {
         }
     }
 
+    /// cross-axis Aligns the given shard to the given alignment ofcourse.
+    fn align(self, align: AxisAlign) -> AlignedBox<Self> {
+        AlignedBox { shard: self, align }
+    }
+
     fn cached(self) -> CachedShard<Self> {
         CachedShard {
             shard: self,
@@ -201,6 +208,29 @@ macro_rules! impl_deref {
 }
 
 pub(super) use impl_deref;
+
+/// Represents a shard that cross-axis aligns its child.
+pub struct AlignedBox<S> {
+    shard: S,
+    align: AxisAlign,
+}
+impl<Ctx: AppCtx, S: Shard<Ctx>> ExtShard<Ctx, S> for AlignedBox<S> {
+    fn inner(&self) -> &S {
+        &self.shard
+    }
+
+    fn inner_mut(&mut self) -> &mut S {
+        &mut self.shard
+    }
+
+    fn layout(&mut self, ctx: &mut LayoutCtx) -> ShardLayout {
+        let mut a_layout = self.shard.layout(ctx);
+        a_layout.align = self.align;
+        a_layout
+    }
+}
+impl_deref!(AlignedBox<S>, S, S);
+ext_impl!(AlignedBox<S>, S: Shard<Ctx>);
 
 /// Represents a shard that pads its child's surrounding.
 pub struct PaddedBox<S> {
