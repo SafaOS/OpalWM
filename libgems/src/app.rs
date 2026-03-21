@@ -4,12 +4,12 @@ use libopal::DequeuedEvents;
 
 use crate::{AppEnv, Window};
 
-pub trait AppState {
+pub trait AppState: 'static {
     type Message;
 }
 
 /// Describes a global App context
-pub trait AppCtx {
+pub trait AppCtx: 'static {
     type State;
     type Message;
 
@@ -23,6 +23,12 @@ pub struct Data<State: AppState> {
     pending_messages: Vec<State::Message>,
     env: AppEnv,
     state: State,
+}
+
+impl<State: AppState> Data<State> {
+    pub fn broadcast_message(&mut self, msg: State::Message) {
+        self.send_message(msg);
+    }
 }
 
 impl<State: AppState> AppCtx for Data<State> {

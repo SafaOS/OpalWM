@@ -1,24 +1,23 @@
 mod button;
-mod stack;
 pub(crate) mod event;
 mod ext;
 mod label;
+mod layout;
 mod primitive;
 mod render_ctx;
+mod stack;
 
 pub use button::*;
-pub use stack::*;
 use cosmic_text::FontSystem;
 pub use ext::*;
 pub use label::*;
+pub use layout::*;
 pub use render_ctx::*;
+pub use stack::*;
 
 use crate::{
     AppCtx, ShardEvent,
-    render::{
-        Alignment, BoundingConstraints, BoundingRect, CanvasCache, CanvasContext, NoopCanvas,
-        Padding, Point,
-    },
+    render::{BoundingConstraints, BoundingRect, CanvasCache, CanvasContext, NoopCanvas, Point},
     shards::event::EventCtx,
 };
 
@@ -99,24 +98,6 @@ pub trait Shard<Context: AppCtx> {
         _ = context;
     }
     fn dirty(&self) -> bool;
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-/// Defines the layout of a [`Shard`].
-pub struct ShardLayout {
-    bounds: BoundingRect,
-    padding: Padding,
-    alignment: Alignment,
-}
-
-impl ShardLayout {
-    /// Returns the layout bounds with padding added.
-    pub const fn bounds_with_padding(&self) -> BoundingRect {
-        BoundingRect::new(
-            self.bounds.width() + self.padding.left + self.padding.right,
-            self.bounds.height() + self.padding.top + self.padding.bottom,
-        )
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
