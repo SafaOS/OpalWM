@@ -77,7 +77,7 @@ impl Mul<f32> for Vec2 {
 pub type Point = Vec2;
 
 /// Represents a (width, height) Rectangle that represents the bounds of a shape
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct BoundingRect(Vec2);
 
 impl BoundingRect {
@@ -125,7 +125,7 @@ impl DerefMut for BoundingRect {
 }
 
 /// Represents constraints applied on a shape's bounds, min-max [`BoundingRect`]s.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct BoundingConstraints {
     min: BoundingRect,
     max: BoundingRect,

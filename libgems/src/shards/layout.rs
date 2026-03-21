@@ -14,7 +14,7 @@ pub enum AxisAlign {
     End,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 /// Defines the layout of a [`Shard`].
 pub struct ShardLayout {
     pub bounds: BoundingRect,
@@ -31,7 +31,7 @@ impl ShardLayout {
         }
     }
 
-    /// reutrns the bounds with padding.
+    /// returns the bounds with padding.
     pub const fn full_bounds(&self) -> BoundingRect {
         BoundingRect::new(
             self.bounds.width() + self.padding.padded_width(),

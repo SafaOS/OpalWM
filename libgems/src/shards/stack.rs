@@ -72,13 +72,6 @@ impl<Ctx: AppCtx> Element<Ctx> {
         }
     }
 
-    pub fn node(&self) -> Option<&ShardNode<Ctx>> {
-        match self {
-            Self::Normal { node, .. } => Some(node),
-            Self::Spacer { .. } => None,
-        }
-    }
-
     pub fn bounds(&self) -> BoundingRect {
         match self {
             Self::Normal { node, .. } => node
@@ -104,8 +97,11 @@ pub struct Stack<Ctx: AppCtx> {
     justify_content: Justify,
 
     elements: Vec<Element<Ctx>>,
+    dirty: bool,
     layout_changed: bool,
     cursor_at: Option<Point>,
+    last_constraints: BoundingConstraints,
+    size: BoundingRect,
 }
 
 impl<Ctx: AppCtx> Stack<Ctx> {
@@ -117,7 +113,10 @@ impl<Ctx: AppCtx> Stack<Ctx> {
             padding: Padding::equal(3.),
             justify_content: Justify::default(),
             layout_changed: true,
+            dirty: true,
             cursor_at: None,
+            size: BoundingRect::default(),
+            last_constraints: BoundingConstraints::default(),
         }
     }
 
@@ -204,12 +203,7 @@ impl<Ctx: AppCtx> Stack<Ctx> {
 
 impl<Ctx: AppCtx> Shard<Ctx> for Stack<Ctx> {
     fn dirty(&self) -> bool {
-        self.layout_changed
-            || self
-                .elements
-                .iter()
-                .filter_map(|e| e.node())
-                .any(|node| node.is_dirty())
+        self.layout_changed || self.dirty
     }
     fn lifecycle(&mut self, _: &mut super::lifecycle::LifeCycleCtx, event: &LifeCycle) {
         match event {
@@ -226,6 +220,14 @@ impl<Ctx: AppCtx> Shard<Ctx> for Stack<Ctx> {
 
     fn layout(&mut self, ctx: &mut super::LayoutCtx) -> super::ShardLayout {
         let constraints = ctx.constraints();
+        if core::mem::replace(&mut self.last_constraints, constraints) == constraints
+            && !self.dirty()
+        {
+            return super::ShardLayout {
+                bounds: self.size,
+                ..Default::default()
+            };
+        }
         let stack_min = constraints.min();
         let stack_max = constraints.max();
 
@@ -353,12 +355,13 @@ impl<Ctx: AppCtx> Shard<Ctx> for Stack<Ctx> {
             Direction::Horizontal => our_width - width_used,
         };
 
-        self.layout_changed = layout_changed;
         let our_bounds = BoundingRect::new(our_width, our_height);
+        self.layout_changed = layout_changed;
+        self.size = our_bounds;
+
         let stack_layout = ShardLayout {
             bounds: our_bounds,
-            padding: Padding::none(),
-            align: AxisAlign::default(),
+            ..Default::default()
         };
 
         // Plot all elements.
@@ -439,12 +442,15 @@ impl<Ctx: AppCtx> Shard<Ctx> for Stack<Ctx> {
                 event,
                 app_ctx,
             );
+
+            self.dirty |= node.is_dirty();
         }
     }
 
     fn on_ctx_update(&mut self, context: &Ctx) {
         for node in self.elements.iter_mut().filter_map(|e| e.node_mut()) {
             node.on_ctx_update(context);
+            self.dirty |= node.is_dirty();
         }
     }
 
@@ -457,6 +463,7 @@ impl<Ctx: AppCtx> Shard<Ctx> for Stack<Ctx> {
     ) {
         for node in self.elements.iter_mut().filter_map(|e| e.node_mut()) {
             node.route_message(pos, state, message);
+            self.dirty |= node.is_dirty();
         }
     }
 
@@ -464,10 +471,12 @@ impl<Ctx: AppCtx> Shard<Ctx> for Stack<Ctx> {
         let origin = ctx.origin();
 
         let mut results: Option<(Point, BoundingRect)>;
+        let mut new_dirty = false;
 
         if core::mem::take(&mut self.layout_changed) {
             for node in self.elements.iter_mut().filter_map(|e| e.node_mut()) {
                 node.render(ctx, true, self.cursor_at);
+                new_dirty |= node.is_dirty();
             }
 
             results = None;
@@ -502,9 +511,12 @@ impl<Ctx: AppCtx> Shard<Ctx> for Stack<Ctx> {
                     // Render only
                     node.render(ctx, false, self.cursor_at);
                 }
+
+                new_dirty |= node.is_dirty();
             }
         }
 
+        self.dirty = new_dirty;
         results
     }
 }
