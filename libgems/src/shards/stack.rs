@@ -1,7 +1,7 @@
 use crate::{
     AppCtx, EventCtx, ShardEvent,
     render::{BoundingConstraints, BoundingRect, Padding, Point},
-    shards::{AxisAlign, RenderCtx, Shard, ShardLayout, ShardNode},
+    shards::{AxisAlign, RenderCtx, Shard, ShardLayout, ShardNode, lifecycle::LifeCycle},
 };
 
 /// Describes the stack direction, horizontal or vertical.
@@ -156,8 +156,7 @@ impl<Ctx: AppCtx> Stack<Ctx> {
     /// Aligns the container's children to the specified alignment.
     #[inline(always)]
     pub fn set_align(&mut self, alignment: AxisAlign) -> &mut Self {
-        self.default_align = alignment;
-        self.layout_changed = true;
+        self.layout_changed = core::mem::replace(&mut self.default_align, alignment) != alignment;
         self
     }
     #[inline(always)]
@@ -211,6 +210,18 @@ impl<Ctx: AppCtx> Shard<Ctx> for Stack<Ctx> {
                 .iter()
                 .filter_map(|e| e.node())
                 .any(|node| node.is_dirty())
+    }
+    fn lifecycle(&mut self, _: &mut super::lifecycle::LifeCycleCtx, event: &LifeCycle) {
+        match event {
+            LifeCycle::Init => {
+                for ele in &mut self.elements {
+                    if let Some(node) = ele.node_mut() {
+                        node.route_lifecycle(event);
+                    }
+                }
+            }
+            _ => {}
+        }
     }
 
     fn layout(&mut self, ctx: &mut super::LayoutCtx) -> super::ShardLayout {

@@ -1,7 +1,7 @@
 use crate::{
     AppCtx, BoundingRect, EventCtx, Padding, Point, ShardEvent,
     render::{PaintBrush, TinySkiaCanvas, shapes::Rect},
-    shards::{LayoutCtx, RenderCtx, Shard, ShardLayout},
+    shards::{LayoutCtx, LifeCycleCtx, RenderCtx, Shard, ShardLayout, lifecycle::LifeCycle},
 };
 
 trait ExtShard<Ctx: AppCtx, Inner: Shard<Ctx> + ?Sized> {
@@ -15,6 +15,10 @@ trait ExtShard<Ctx: AppCtx, Inner: Shard<Ctx> + ?Sized> {
     #[inline(always)]
     fn render(&mut self, ctx: &mut RenderCtx) -> Option<(Point, BoundingRect)> {
         self.inner_mut().render(ctx)
+    }
+    #[inline(always)]
+    fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle) {
+        self.inner_mut().lifecycle(ctx, event)
     }
     #[inline(always)]
     fn on_event(&mut self, event_ctx: &mut EventCtx, event: &ShardEvent, app_ctx: &mut Ctx) {
@@ -65,6 +69,10 @@ macro_rules! ext_impl {
                 app_ctx: &mut Ctx,
             ) {
                 <Self as ExtShard<Ctx, _>>::on_event(self, event_ctx, event, app_ctx)
+            }
+            #[inline(always)]
+            fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle) {
+                <Self as ExtShard<Ctx, _>>::lifecycle(self, ctx, event)
             }
             #[inline(always)]
             fn on_message(

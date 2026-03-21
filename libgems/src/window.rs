@@ -141,13 +141,16 @@ impl<Ctx: AppCtx + 'static> Window<Ctx> {
                     .background(bg),
             );
         }
-        Self {
+        let mut this = Self {
             root: used_root,
             cache: CanvasCache::new(),
             mouse_position: None,
             mouse_button_state: HeldMouseButtons::empty(),
             inner,
-        }
+        };
+        this.root
+            .route_lifecycle(&crate::shards::lifecycle::LifeCycle::Init);
+        this
     }
 
     /// Damages the area at `at` with the bounds `area`.

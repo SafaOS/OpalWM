@@ -3,6 +3,9 @@ pub(crate) mod event;
 mod ext;
 mod label;
 mod layout;
+pub mod lifecycle;
+pub use event::EventCtx;
+pub use lifecycle::LifeCycleCtx;
 mod primitive;
 mod render_ctx;
 mod stack;
@@ -18,7 +21,7 @@ pub use stack::*;
 use crate::{
     AppCtx, ShardEvent,
     render::{BoundingConstraints, BoundingRect, CanvasCache, CanvasContext, NoopCanvas, Point},
-    shards::event::EventCtx,
+    shards::lifecycle::LifeCycle,
 };
 
 #[derive(Debug)]
@@ -63,6 +66,12 @@ impl<'f> LayoutCtx<'f> {
 
 /// A shard is a widget.
 pub trait Shard<Context: AppCtx> {
+    fn dirty(&self) -> bool;
+    /// [`LifeCycle`] report.
+    fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle) {
+        _ = ctx;
+        _ = event;
+    }
     /// Lays out [`Self`] according to ctxt, returning the layout.
     fn layout(&mut self, ctx: &mut LayoutCtx) -> ShardLayout;
     /// Renders self at the given `pos` with the given `layout` (results of calling [`Shard::layout`]) into the given [`Canvas`].
@@ -97,7 +106,6 @@ pub trait Shard<Context: AppCtx> {
     fn on_ctx_update(&mut self, context: &Context) {
         _ = context;
     }
-    fn dirty(&self) -> bool;
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -202,7 +210,7 @@ impl<Ctx: AppCtx> ShardNode<Ctx> {
     }
 
     pub fn is_dirty(&self) -> bool {
-        self.shard.dirty() || self.state.state_changed
+        self.shard.dirty()
     }
 
     pub fn position(&self) -> Point {
@@ -221,6 +229,12 @@ impl<Ctx: AppCtx> ShardNode<Ctx> {
 
         let was_hot = core::mem::replace(&mut state.is_hot, is_hot);
         state.state_changed |= is_hot != was_hot;
+        if is_hot != was_hot {
+            shard.lifecycle(
+                &mut LifeCycleCtx::new(state),
+                &LifeCycle::HotChanged(is_hot),
+            );
+        }
 
         let mut ctx = EventCtx::new(origin, Some(cursor_at), state, layout);
         if is_hot && !was_hot {
@@ -231,6 +245,12 @@ impl<Ctx: AppCtx> ShardNode<Ctx> {
 
         is_hot.then_some(ctx)
     }
+
+    pub fn route_lifecycle(&mut self, cycle: &LifeCycle) {
+        self.shard
+            .lifecycle(&mut LifeCycleCtx::new(&mut self.state), cycle);
+    }
+
     /// Routes an event to the shard, updating state as necessary.
     pub fn route_event(
         &mut self,
@@ -255,7 +275,8 @@ impl<Ctx: AppCtx> ShardNode<Ctx> {
                         app_ctx,
                     );
                 } else {
-                    routed_event = layout.bounds.contains_point(origin, event_origin).then(|| {
+                    let is_within = layout.bounds.contains_point(origin, event_origin);
+                    routed_event = is_within.then(|| {
                         EventCtx::new(origin, Some(event_origin), &mut self.state, layout)
                     });
                 }
