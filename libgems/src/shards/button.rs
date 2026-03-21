@@ -1,10 +1,10 @@
-use crate::render::Color;
+use crate::render::{BoundingConstraints, Color};
 use crate::shards::{CachedShard, Label, RenderCtx, ShardLayout, ShardsExt};
 use crate::{EventCtx, ShardEvent};
 
 use crate::{
     AppCtx, BoundingRect,
-    render::{Padding, PaintBrush, shapes::Rect},
+    render::{PaintBrush, shapes::Rect},
     shards::Shard,
 };
 
@@ -24,13 +24,13 @@ impl<Ctx: AppCtx> Button<Ctx> {
             paint: PaintBrush::Color(Color::rgb(0xFD, 0xB0, 0xC0)),
             dirty: true,
             label_layout: None,
-            label: label.cached(),
+            label: label.center_text().cached(),
         }
     }
 
     /// Sets the paint brush for the button.
-    pub fn with_paint(mut self, paint: PaintBrush) -> Self {
-        self.paint = paint;
+    pub fn with_paint(mut self, paint: impl Into<PaintBrush>) -> Self {
+        self.paint = paint.into();
         self
     }
 
@@ -46,18 +46,26 @@ impl<Ctx: AppCtx> Shard<Ctx> for Button<Ctx> {
         self.dirty || self.label.dirty()
     }
     fn layout(&mut self, ctx: &mut super::LayoutCtx) -> super::ShardLayout {
-        let label_laid = self.label.layout(ctx);
+        const PAD: f32 = 8.;
+        let constraints = ctx.constraints();
+        let min = constraints.min();
+        let max = constraints.max();
+
+        let label_laid = ctx.with_constraints(BoundingConstraints::from_max(max), |ctx| {
+            self.label.layout(ctx)
+        });
         self.label_layout = Some(label_laid);
 
-        let constraints = ctx.constraints();
-        let max = constraints.max();
-        let w = max.width();
-        let h = max.height();
-        super::ShardLayout {
-            bounds: BoundingRect::new(w, h),
-            padding: Padding::none(),
-            alignment: crate::Alignment::default(),
-        }
+        let w = min
+            .width()
+            .max(label_laid.bounds.width() + PAD)
+            .min(max.width());
+
+        let h = min
+            .height()
+            .max(label_laid.bounds.height() + PAD)
+            .min(max.height());
+        super::ShardLayout::from_bounds(BoundingRect::new(w, h))
     }
 
     fn on_event(&mut self, event_ctx: &mut EventCtx, event: &ShardEvent, _app_ctx: &mut Ctx) {
@@ -84,18 +92,13 @@ impl<Ctx: AppCtx> Shard<Ctx> for Button<Ctx> {
 
         let overlay_alpha = if !is_active { 20 } else { 36 };
 
-        let label_layout = self
-            .label_layout
-            .expect("Didn't layout label during buttons layout");
-        let label_bounds = label_layout.bounds;
-        let l_w = label_bounds.width();
-        let l_h = label_bounds.height();
-
-        ctx.nest_ctx(
-            crate::Point::new((w - l_w) / 2., (h - l_h) / 2.),
-            label_bounds,
-            |ctx| self.label.render(ctx),
-        );
+        // let label_layout = self
+        //     .label_layout
+        //     .expect("Didn't layout label during buttons layout");
+        // let label_bounds = label_layout.bounds;
+        // let l_w = label_bounds.width();
+        // let l_h = label_bounds.height();
+        self.label.render(ctx);
 
         if is_hot {
             ctx.fill(

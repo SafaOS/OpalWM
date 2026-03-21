@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::{BoundingRect, Color, Padding};
+use crate::{BoundingRect, Color, Point};
 use cosmic_text::{Attrs, Buffer, Metrics};
 
 use crate::{AppCtx, render::PaintBrush, shards::Shard};
@@ -12,6 +12,7 @@ pub struct Label<Ctx: AppCtx> {
     text_changed: bool,
     brush: PaintBrush,
     attrs: Attrs<'static>,
+    center: bool,
     _ctx: PhantomData<Ctx>,
 }
 
@@ -24,6 +25,7 @@ impl<Ctx: AppCtx> Label<Ctx> {
             text_changed: true,
             brush: PaintBrush::Color(Color::BLACK), /* todo environment themeing */
             attrs: Attrs::new(),
+            center: false,
             _ctx: PhantomData,
         }
     }
@@ -57,16 +59,23 @@ impl<Ctx: AppCtx> Label<Ctx> {
         self
     }
 
-    fn height(&self) -> f32 {
+    pub fn height(&self) -> f32 {
         self.buffer.layout_runs().map(|run| run.line_height).sum()
     }
 
-    fn width(&self) -> f32 {
+    pub fn width(&self) -> f32 {
         self.buffer
             .layout_runs()
             .map(|run| run.line_w)
             .max_by(|x, y| x.partial_cmp(y).unwrap_or(core::cmp::Ordering::Equal))
             .unwrap_or(0.)
+    }
+
+    #[inline]
+    /// Centers text within it's own bounds.
+    pub fn center_text(mut self) -> Self {
+        self.center = true;
+        self
     }
 }
 
@@ -100,19 +109,30 @@ impl<Ctx: AppCtx> Shard<Ctx> for Label<Ctx> {
 
         let min_box = ctx.min_box();
         let act_width = self.width().max(min_box.width());
-        let act_height = self.height().max(min_box.width());
-        super::ShardLayout {
-            bounds: BoundingRect::new(act_width, act_height),
-            padding: Padding::default(),
-            alignment: crate::Alignment::default(),
-        }
+        let act_height = self.height().max(min_box.height());
+
+        super::ShardLayout::from_bounds(BoundingRect::new(act_width, act_height))
     }
 
     fn render(
         &mut self,
         ctx: &mut super::RenderCtx,
     ) -> Option<(crate::Point, crate::BoundingRect)> {
-        ctx.fill_text(&self.brush, &self.buffer);
+        let bounds = ctx.layout().bounds;
+
+        let r_w = bounds.width();
+        let r_h = bounds.height();
+        let b_w = self.width();
+        let b_h = self.height();
+
+        let mut start = Point::default();
+        if self.center && r_w >= b_w && r_h >= b_h {
+            start = crate::Point::new((r_w - b_w) / 2., (r_h - b_h) / 2.);
+        }
+
+        ctx.nest_ctx(start, BoundingRect::new(b_w, b_h), |ctx| {
+            ctx.fill_text(&self.brush, &self.buffer);
+        });
         self.buffer.set_redraw(false);
         None
     }

@@ -1,6 +1,6 @@
 use crate::{
-    AppCtx, BoundingRect, EventCtx, Point, ShardEvent,
-    render::TinySkiaCanvas,
+    AppCtx, BoundingRect, EventCtx, Padding, Point, ShardEvent,
+    render::{PaintBrush, TinySkiaCanvas, shapes::Rect},
     shards::{LayoutCtx, RenderCtx, Shard, ShardLayout},
 };
 
@@ -40,6 +40,7 @@ trait ExtShard<Ctx: AppCtx, Inner: Shard<Ctx> + ?Sized> {
     }
 }
 
+#[macro_export(local_inner_macros)]
 /// Avoids stupid compiler error preventing implementing Shard<Ctx> for all ExtShard<Ctx>
 macro_rules! ext_impl {
     ($ty:ty, $($rest:tt)*) => {
@@ -82,6 +83,7 @@ macro_rules! ext_impl {
         }
     };
 }
+pub(super) use ext_impl;
 
 pub trait ShardsExt<Ctx: AppCtx>: Sized + Shard<Ctx> {
     /// Registers a callback to be executed when the shard is clicked.
@@ -144,16 +146,35 @@ pub trait ShardsExt<Ctx: AppCtx>: Sized + Shard<Ctx> {
         }
     }
 
+    /// Pads the given shard with the given padding.
+    fn pad(self, padding: Padding) -> PaddedBox<Self> {
+        PaddedBox {
+            shard: self,
+            padding,
+        }
+    }
+
     fn cached(self) -> CachedShard<Self> {
         CachedShard {
             shard: self,
             cache: None,
         }
     }
+
+    /// Constructs a new [`Container`] around self with a given background.
+    fn background(self, paint: impl Into<PaintBrush>) -> Container<Self> {
+        Container {
+            background: paint.into(),
+            radius: 0.,
+            border: None,
+            shard: self,
+        }
+    }
 }
 
 impl<Ctx: AppCtx, S: Shard<Ctx>> ShardsExt<Ctx> for S {}
 
+#[macro_export(local_inner_macros)]
 macro_rules! impl_deref {
     ($t:ty,$o:ty,$($generics:tt)*) => {
         impl<$($generics)*> std::ops::Deref for $t {
@@ -170,6 +191,33 @@ macro_rules! impl_deref {
         }
     };
 }
+
+pub(super) use impl_deref;
+
+/// Represents a shard that pads its child's surrounding.
+pub struct PaddedBox<S> {
+    shard: S,
+    padding: Padding,
+}
+
+impl<Ctx: AppCtx, S: Shard<Ctx>> ExtShard<Ctx, S> for PaddedBox<S> {
+    fn inner(&self) -> &S {
+        &self.shard
+    }
+
+    fn inner_mut(&mut self) -> &mut S {
+        &mut self.shard
+    }
+
+    fn layout(&mut self, ctx: &mut LayoutCtx) -> ShardLayout {
+        let mut a_layout = self.shard.layout(ctx);
+        a_layout.padding = self.padding;
+        a_layout
+    }
+}
+
+impl_deref!(PaddedBox<S>, S, S);
+ext_impl!(PaddedBox<S>, S: Shard<Ctx>);
 
 /// Represents a shard that limits its child's size.
 pub struct SizedBox<S> {
@@ -229,8 +277,12 @@ impl<Ctx: AppCtx, S: Shard<Ctx>> ExtShard<Ctx, S> for SizedBox<S> {
 
         let min_width = constraints.min().width();
         let min_height = constraints.min().height();
-        let min_width = self.max_width.map_or(min_width, |m| m.min(min_width));
-        let min_height = self.max_height.map_or(min_height, |m| m.min(min_height));
+        let min_width = self
+            .max_width
+            .map_or(min_width, |m| m.max(min_width).min(max_width));
+        let min_height = self
+            .max_height
+            .map_or(min_height, |m| m.max(min_height).min(max_height));
 
         self.dirty = false;
         ctx.with_constraints(
@@ -388,5 +440,56 @@ impl<Ctx: AppCtx, S: Shard<Ctx> + ?Sized> ExtShard<Ctx, S> for CachedShard<S> {
     }
 }
 
-impl_deref!(CachedShard<S>, S, S);
+impl_deref!(CachedShard<S>, S, S: ?Sized);
 ext_impl!(CachedShard<S>, S: Shard<Ctx> + ?Sized);
+
+/// Represents a Box Container around S.
+///
+/// Currently supports adding backgrounds and such.
+#[derive(Debug)]
+pub struct Container<S> {
+    background: PaintBrush,
+    border: Option<(PaintBrush, f32)>,
+    radius: f32,
+    shard: S,
+}
+
+impl<S> Container<S> {
+    #[inline]
+    pub fn background(mut self, background: impl Into<PaintBrush>) -> Self {
+        self.background = background.into();
+        self
+    }
+
+    #[inline]
+    pub fn round(mut self, radius: f32) -> Self {
+        self.radius = radius;
+        self
+    }
+    #[inline]
+    pub fn border(mut self, color: impl Into<PaintBrush>, thickness: f32) -> Self {
+        self.border = Some((color.into(), thickness));
+        self
+    }
+}
+
+impl<Ctx: AppCtx, S: Shard<Ctx>> ExtShard<Ctx, S> for Container<S> {
+    fn inner(&self) -> &S {
+        &self.shard
+    }
+    fn inner_mut(&mut self) -> &mut S {
+        &mut self.shard
+    }
+
+    fn render(&mut self, ctx: &mut RenderCtx) -> Option<(Point, BoundingRect)> {
+        let bounds = ctx.layout().bounds;
+        let shape = Rect::new_rect(bounds.width(), bounds.height()).round(self.radius);
+        ctx.fill(&self.background, &shape);
+        if let Some((color, thickness)) = &self.border {
+            ctx.stroke(&color, *thickness, &shape);
+        }
+        self.shard.render(ctx)
+    }
+}
+impl_deref!(Container<S>, S, S);
+ext_impl!(Container<S>, S: Shard<Ctx>);
