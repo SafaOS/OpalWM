@@ -11,6 +11,12 @@ pub enum PaintBrush {
     Color(Color),
 }
 
+impl From<Color> for PaintBrush {
+    fn from(value: Color) -> Self {
+        Self::Color(value)
+    }
+}
+
 impl PaintBrush {
     pub const fn with_alpha(&self, alpha: u8) -> Self {
         match self {
@@ -61,11 +67,18 @@ pub struct CanvasCache {
 
 impl CanvasCache {
     pub fn new() -> Self {
-        let font_data =
+        let noto_font_data =
+            std::fs::read("sys:/fonts/NotoSans-Regular.ttf").expect("Failed to open font file");
+        let dejavu_font_data =
             std::fs::read("sys:/fonts/DejaVuSansMono.ttf").expect("Failed to open font file");
-        let font_system = FontSystem::new_with_fonts([cosmic_text::fontdb::Source::Binary(
-            std::sync::Arc::new(font_data.into_boxed_slice()),
-        )]);
+        let font_system = FontSystem::new_with_fonts([
+            cosmic_text::fontdb::Source::Binary(std::sync::Arc::new(
+                noto_font_data.into_boxed_slice(),
+            )),
+            cosmic_text::fontdb::Source::Binary(std::sync::Arc::new(
+                dejavu_font_data.into_boxed_slice(),
+            )),
+        ]);
 
         Self {
             swash_cache: SwashCache::new(),
