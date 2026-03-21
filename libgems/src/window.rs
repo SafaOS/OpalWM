@@ -1,3 +1,4 @@
+use cosmic_text::Metrics;
 use libopal::{
     WindowEvent,
     defs::{HeldMouseButtons, WindowFlags, WindowID},
@@ -5,25 +6,27 @@ use libopal::{
 };
 
 use crate::{
-    AppCtx, EventCtx,
-    render::{BoundingConstraints, BoundingRect, CanvasCache, Point},
-    shards::{LayoutCtx, Shard, ShardNode},
+    AppCtx, EventCtx, Padding,
+    render::{BoundingConstraints, BoundingRect, CanvasCache, PaintBrush, Point},
+    shards::{Button, Label, LayoutCtx, Shard, ShardNode, ShardsExt, Stack},
 };
 
 #[derive(Debug, Clone)]
 pub struct WindowBuilder<'a> {
     width: u32,
     height: u32,
-
+    bg: PaintBrush,
     title: &'a str,
 }
 
+const TITLE_BAR_HEIGHT: u32 = 26;
 impl<'a> WindowBuilder<'a> {
     /// Constructs a WindowBuilder with width and height.
     pub const fn new(width: u32, height: u32) -> Self {
         Self {
             width,
             height,
+            bg: PaintBrush::Color(super::Color::WHITE),
             title: "",
         }
     }
@@ -34,20 +37,33 @@ impl<'a> WindowBuilder<'a> {
         self
     }
 
+    #[inline]
+    pub fn background(mut self, background: impl Into<PaintBrush>) -> Self {
+        self.bg = background.into();
+        self
+    }
+
     /// Builds the window given a root [`Shard`].
     pub fn build<Root, Ctx: AppCtx>(self, root: Root) -> Window<Ctx>
     where
         Root: Shard<Ctx> + 'static,
     {
+        let mut height = self.height;
+        if !self.title.is_empty() {
+            height += TITLE_BAR_HEIGHT;
+        }
+
         Window::new_with_root(
+            self.title,
             libopal::window::Window::create(
                 self.title,
                 WindowFlags::GLOBAL,
                 self.width,
-                self.height,
+                height,
                 None,
                 None,
             ),
+            self.bg,
             root,
         )
     }
@@ -63,7 +79,7 @@ pub struct Window<Ctx: AppCtx> {
     mouse_button_state: HeldMouseButtons,
 }
 
-impl<Ctx: AppCtx> Window<Ctx> {
+impl<Ctx: AppCtx + 'static> Window<Ctx> {
     /// Returns the Window ID of this Window.
     #[inline]
     pub fn win_id(&self) -> WindowID {
@@ -71,11 +87,62 @@ impl<Ctx: AppCtx> Window<Ctx> {
     }
 
     fn new_with_root<Root: Shard<Ctx> + 'static>(
+        title: &str,
         inner: libopal::window::Window,
+        bg: PaintBrush,
         root: Root,
     ) -> Self {
+        let used_root;
+        if title.is_empty() {
+            used_root = ShardNode::new(
+                Stack::row()
+                    .with(root)
+                    .with_padding(Padding::none())
+                    .fix_size(inner.width() as f32, inner.height() as f32)
+                    .background(bg),
+            );
+        } else {
+            use super::Color;
+            use super::shards::AxisAlign;
+            let title_height = TITLE_BAR_HEIGHT as f32;
+            let btn_width = title_height;
+            let win_width = inner.width() as f32;
+
+            let btn_flex = (3. * btn_width) / win_width;
+            let spacer2_flex = 1.0 - btn_flex;
+
+            used_root = ShardNode::new(
+                Stack::<Ctx>::row()
+                    .with_padding(Padding::none())
+                    .with(
+                        Stack::<Ctx>::column()
+                            .with_padding(Padding::none())
+                            .with_spacer(1.)
+                            .with_flex(
+                                Label::from_str(title)
+                                    .with_metrics(Metrics::relative(13., 1.))
+                                    .center_text(),
+                                1.,
+                            )
+                            .with_spacer(spacer2_flex)
+                            .with_flex(
+                                Button::new(Label::from_str("X"))
+                                    .with_paint(Color::NONE)
+                                    .on_click(|_, _, _| std::process::exit(0)),
+                                btn_flex,
+                            )
+                            .align(AxisAlign::Center)
+                            .background(Color::rgb(0xFD, 0xB0, 0xC0))
+                            .fix_height(title_height)
+                            .fix_width(win_width),
+                    )
+                    .with(root)
+                    .fix_size(inner.width() as f32, inner.height() as f32)
+                    .background(bg),
+            );
+        }
         Self {
-            root: ShardNode::new(root),
+            root: used_root,
             cache: CanvasCache::new(),
             mouse_position: None,
             mouse_button_state: HeldMouseButtons::empty(),
@@ -106,6 +173,10 @@ impl<Ctx: AppCtx> Window<Ctx> {
         );
 
         let pix_width = pixmap.width();
+        let win_width = self.inner.width();
+        assert_eq!(pix_width, win_width);
+
+        let win_height = self.inner.height();
         let pix_height = pixmap.height();
 
         let real_pixels = pixmap.pixels_mut();
@@ -120,8 +191,8 @@ impl<Ctx: AppCtx> Window<Ctx> {
             return;
         }
 
-        let damage_h = damage_h.min(pix_height - damage_y);
-        let damage_w = damage_w.min(pix_width - damage_x);
+        let damage_h = damage_h.min(win_height - damage_y);
+        let damage_w = damage_w.min(win_width - damage_x);
         for row in damage_y..(damage_y + damage_h) {
             let start_index = ((row * pix_width) + damage_x) as usize;
             let end_index = (start_index + damage_w as usize) as usize;
