@@ -1,278 +1,428 @@
 use crate::{
     AppCtx, EventCtx, ShardEvent,
-    render::{Alignment, BoundingConstraints, BoundingRect, Color, Padding, PaintBrush, Point},
-    shards::{RenderCtx, Shard, ShardLayout, ShardNode},
+    render::{BoundingConstraints, BoundingRect, Padding, Point},
+    shards::{AxisAlign, RenderCtx, Shard, ShardLayout, ShardNode},
 };
 
+/// Describes the stack direction, horizontal or vertical.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ItemsDisplay {
+pub enum Direction {
+    Horizontal,
     Vertical,
-    Horrizontal,
-    Grid(u16, u16),
 }
 
-/// Describes how a container is displayed.
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct Display {
-    items_disp: ItemsDisplay,
-    items_align: Alignment,
-    padding: Padding,
-    bg: Color,
-    max_width: Option<f32>,
-    max_height: Option<f32>,
-}
-
-impl Display {
-    pub const fn new() -> Self {
-        Self {
-            items_align: Alignment::Default,
-            items_disp: ItemsDisplay::Vertical,
-            padding: Padding::equal(3.),
-            max_width: None,
-            max_height: None,
-            bg: Color::NONE,
+impl Direction {
+    #[inline]
+    pub const fn skip(&self, at: f32) -> Point {
+        match self {
+            Self::Horizontal => Point::new(at, 0.),
+            Self::Vertical => Point::new(0., at),
         }
     }
 
-    #[inline(always)]
-    pub const fn align(mut self, alignment: Alignment) -> Self {
-        self.items_align = alignment;
-        self
+    #[inline]
+    pub fn bounds_skip(&self, bounds: BoundingRect, padding: Padding) -> Point {
+        match self {
+            Self::Horizontal => self.skip(bounds.width()) + self.skip(padding.right),
+            Self::Vertical => self.skip(bounds.height()) + self.skip(padding.bottom),
+        }
     }
 
-    #[inline(always)]
-    pub const fn with_padding(mut self, padding: Padding) -> Self {
-        self.padding = padding;
-        self
+    #[inline]
+    pub fn rev(&self) -> Self {
+        match self {
+            Self::Horizontal => Self::Vertical,
+            Self::Vertical => Self::Horizontal,
+        }
+    }
+}
+
+/// Describes how space should be put.
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Justify {
+    #[default]
+    /// Pack elements together with spaces at end.
+    Start,
+    /// Pack elements together with spaces at start.
+    End,
+    /// Pack together with space at both sides.
+    Center,
+    /// Puts equal space around each element.
+    SpaceAround,
+    /// Puts equal space between elements.
+    SpaceBetween,
+}
+
+enum Element<Ctx: AppCtx> {
+    Normal {
+        node: ShardNode<Ctx>,
+        flex_weight: f32,
+    },
+    Spacer {
+        bounds: BoundingRect,
+        flex_weight: f32,
+    },
+}
+
+impl<Ctx: AppCtx> Element<Ctx> {
+    pub fn node_mut(&mut self) -> Option<&mut ShardNode<Ctx>> {
+        match self {
+            Self::Normal { node, .. } => Some(node),
+            Self::Spacer { .. } => None,
+        }
     }
 
-    #[inline(always)]
-    pub const fn horizontal(mut self) -> Self {
-        self.items_disp = ItemsDisplay::Horrizontal;
-        self
+    pub fn node(&self) -> Option<&ShardNode<Ctx>> {
+        match self {
+            Self::Normal { node, .. } => Some(node),
+            Self::Spacer { .. } => None,
+        }
     }
 
-    #[inline(always)]
-    pub const fn vertical(mut self) -> Self {
-        self.items_disp = ItemsDisplay::Vertical;
-        self
+    pub fn bounds(&self) -> BoundingRect {
+        match self {
+            Self::Normal { node, .. } => node
+                .layout_ref()
+                .expect("Attempt to access bounds of a layoutless node")
+                .full_bounds(),
+            Self::Spacer { bounds, .. } => *bounds,
+        }
     }
 
-    #[inline(always)]
-    pub const fn grid(mut self, columns: u16, rows: u16) -> Self {
-        self.items_disp = ItemsDisplay::Grid(columns, rows);
-        self
-    }
-
-    #[inline(always)]
-    pub const fn with_bg(mut self, color: Color) -> Self {
-        self.bg = color;
-        self
+    pub fn flex(&self) -> f32 {
+        match self {
+            Self::Normal { flex_weight, .. } | Self::Spacer { flex_weight, .. } => *flex_weight,
+        }
     }
 }
 
 /// A container that dynamically distributes its children.
 pub struct Stack<Ctx: AppCtx> {
-    display: Display,
-    elements: Vec<ShardNode<Ctx>>,
+    direction: Direction,
+    default_align: AxisAlign,
+    padding: Padding,
+    justify_content: Justify,
+
+    elements: Vec<Element<Ctx>>,
     layout_changed: bool,
     cursor_at: Option<Point>,
 }
 
 impl<Ctx: AppCtx> Stack<Ctx> {
-    pub fn new() -> Self {
+    pub fn new(direction: Direction) -> Self {
         Self {
+            direction,
             elements: Vec::new(),
-            display: Display::new(),
+            default_align: AxisAlign::default(),
+            padding: Padding::equal(3.),
+            justify_content: Justify::default(),
             layout_changed: true,
             cursor_at: None,
         }
     }
 
+    pub fn row() -> Self {
+        Self::new(Direction::Vertical)
+    }
+
+    pub fn column() -> Self {
+        Self::new(Direction::Horizontal)
+    }
+
     /// Sets the padding of the container.
     #[inline(always)]
     pub fn with_padding(mut self, padding: Padding) -> Self {
-        self.display(self.display.with_padding(padding));
+        self.padding = padding;
+        self.layout_changed = true;
         self
     }
 
     /// Makes the container horizontal.
     #[inline(always)]
     pub fn horizontal(mut self) -> Self {
-        self.display(self.display.horizontal());
+        self.direction = Direction::Horizontal;
+        self.layout_changed = true;
         self
     }
 
     /// Makes the container vertical.
     #[inline(always)]
     pub fn vertical(mut self) -> Self {
-        self.display(self.display.vertical());
-        self
-    }
-
-    /// Makes the container a grid.
-    #[inline(always)]
-    pub fn grid(mut self, columns: u16, rows: u16) -> Self {
-        self.display(self.display.grid(columns, rows));
-        self
-    }
-
-    /// Sets the background color of the container.
-    #[inline(always)]
-    pub fn with_bg(mut self, color: Color) -> Self {
-        self.display(self.display.with_bg(color));
+        self.direction = Direction::Vertical;
+        self.layout_changed = true;
         self
     }
 
     /// Aligns the container's children to the specified alignment.
     #[inline(always)]
-    pub fn set_items_align(&mut self, alignment: Alignment) -> &mut Self {
-        self.display(self.display.align(alignment));
+    pub fn set_align(&mut self, alignment: AxisAlign) -> &mut Self {
+        self.default_align = alignment;
+        self.layout_changed = true;
         self
     }
     #[inline(always)]
-    pub fn with_items_align(mut self, alignment: Alignment) -> Self {
-        self.set_items_align(alignment);
+    pub fn align(mut self, alignment: AxisAlign) -> Self {
+        self.set_align(alignment);
         self
     }
 
-    fn display(&mut self, display: Display) {
-        if core::mem::replace(&mut self.display, display) != display {
-            self.layout_changed = true;
-        }
+    #[inline(always)]
+    pub fn justify(mut self, justify: Justify) -> Self {
+        self.justify_content = justify;
+        self
     }
 
     /// Adds a [`Shard`] to this container.
+    ///
+    /// Currently behaves the same as [`Self::with_flex`] but with weight as 0
     #[inline]
-    pub fn with<S: Shard<Ctx> + 'static>(mut self, shard: S) -> Self {
-        self.elements.push(ShardNode::new(shard));
+    pub fn with<S: Shard<Ctx> + 'static>(self, shard: S) -> Self {
+        self.with_flex(shard, 0.)
+    }
 
+    /// Adds a [`Shard`] to this container.
+    ///
+    /// With its size being determined by a given flex weight.
+    #[inline]
+    pub fn with_flex<S: Shard<Ctx> + 'static>(mut self, shard: S, weight: f32) -> Self {
+        self.elements.push(Element::Normal {
+            node: ShardNode::new(shard),
+            flex_weight: weight,
+        });
         self
     }
 
+    /// Adds a flexible spacer with the given `weight` to Self.
     #[inline]
-    fn plot_elements(
-        &mut self,
-        our_layout: &ShardLayout,
-        mut with_ele: impl FnMut(&mut ShardNode<Ctx>, Point),
-    ) {
-        let padding = self.display.padding;
-        let curr_x = padding.left;
-        let mut curr_y = padding.top;
-
-        for ele in self.elements.iter_mut() {
-            let layout = ele
-                .layout
-                .as_ref()
-                .expect("Attempt to plot elements before laying them out");
-
-            let align = if layout.alignment == Alignment::Default {
-                our_layout.alignment
-            } else {
-                layout.alignment
-            };
-
-            let x;
-            let y;
-
-            match (self.display.items_disp, align) {
-                (ItemsDisplay::Grid(cols, rows), _) => todo!("Grid: {cols}=>{rows}"),
-                (ItemsDisplay::Vertical, Alignment::Left | Alignment::Default) => {
-                    let bounds = layout.bounds_with_padding();
-                    x = curr_x;
-                    y = curr_y;
-
-                    curr_y += bounds.height() + padding.bottom;
-                }
-                (ItemsDisplay::Vertical, Alignment::Right) => {
-                    let bounds = layout.bounds_with_padding();
-                    x = our_layout.bounds.width() - bounds.width() - padding.right;
-                    y = curr_y;
-
-                    curr_y += bounds.height() + padding.bottom;
-                }
-                (ItemsDisplay::Vertical, Alignment::Center) => {
-                    let bounds = layout.bounds_with_padding();
-                    x = (our_layout.bounds.width() - (bounds.width() + padding.padded_width()))
-                        / 2.;
-                    y = curr_y;
-
-                    curr_y += bounds.height() + padding.bottom;
-                }
-                (ItemsDisplay::Horrizontal, _) => todo!(),
-            }
-
-            with_ele(&mut *ele, Point::new(x, y))
-        }
+    pub fn with_spacer(mut self, weight: f32) -> Self {
+        self.elements.push(Element::Spacer {
+            bounds: BoundingRect::new(0., 0.),
+            flex_weight: weight,
+        });
+        self
     }
 }
 
 impl<Ctx: AppCtx> Shard<Ctx> for Stack<Ctx> {
     fn dirty(&self) -> bool {
-        self.layout_changed || self.elements.iter().any(|ele| ele.is_dirty())
+        self.layout_changed
+            || self
+                .elements
+                .iter()
+                .filter_map(|e| e.node())
+                .any(|node| node.is_dirty())
     }
 
     fn layout(&mut self, ctx: &mut super::LayoutCtx) -> super::ShardLayout {
         let constraints = ctx.constraints();
-        let default_alignment = self.display.items_align;
+        let stack_min = constraints.min();
+        let stack_max = constraints.max();
 
-        let cont_max_width = constraints
-            .max()
-            .width()
-            .min(self.display.max_width.unwrap_or(f32::MAX));
-        let cont_max_height = constraints
-            .max()
-            .height()
-            .min(self.display.max_height.unwrap_or(f32::MAX));
+        let stack_min_w = stack_min.width();
+        let stack_min_h = stack_min.height();
+        let stack_max_w = stack_max.width();
+        let stack_max_h = stack_max.height();
+        let padded_width = self.padding.padded_width();
+        let padded_height = self.padding.padded_height();
 
-        let padding = self.display.padding;
+        let mut layout_changed = false;
 
-        let ele_count = self.elements.len() as f32;
-        let mut ele_max_width = ((cont_max_width / ele_count) - padding.padded_width()).max(0.);
-        let mut ele_max_height = ((cont_max_height / ele_count) - padding.padded_height()).max(0.);
+        let mut width_used = 0.;
+        let mut height_used = 0.;
+        let mut minor_width = 0.;
+        let mut minor_height = 0.;
+        let mut total_flex = 0.;
 
-        let mut layout_changed = self.layout_changed;
-        for ele in self.elements.iter_mut() {
-            let max_size = BoundingRect::new(ele_max_width, ele_max_height);
-            ctx.with_constraints(BoundingConstraints::from_max(max_size), |ele_ctx| {
-                let (new_layout, is_new_layout) = ele.layout(ele_ctx);
-                if new_layout.alignment == Alignment::Default {
-                    new_layout.alignment = default_alignment;
+        for child in &mut self.elements {
+            let flex = child.flex();
+            if flex <= 0. {
+                let constraints = BoundingConstraints::from_max(match self.direction {
+                    Direction::Vertical => {
+                        BoundingRect::new(stack_max_w - padded_width, f32::INFINITY)
+                    }
+                    Direction::Horizontal => {
+                        BoundingRect::new(f32::INFINITY, stack_max_h - padded_height)
+                    }
+                });
+
+                if let Some(node) = child.node_mut() {
+                    let (child_layout, is_new) =
+                        ctx.with_constraints(constraints, |ctx| node.layout(ctx));
+                    layout_changed |= is_new;
+
+                    if child_layout.align == AxisAlign::Default {
+                        child_layout.align = self.default_align;
+                    }
+
+                    let c_w = child_layout.full_bounds().width();
+                    let c_h = child_layout.full_bounds().height();
+
+                    minor_height = c_h.max(minor_height);
+                    minor_width = c_w.max(minor_width);
+                    width_used += c_w + padded_width;
+                    height_used += c_h + padded_height;
                 }
-
-                if new_layout.bounds_with_padding().width() < ele_max_width {
-                    ele_max_width += ele_max_width - new_layout.bounds.width();
-                }
-
-                if new_layout.bounds_with_padding().height() < ele_max_height {
-                    ele_max_height += ele_max_height - new_layout.bounds.height();
-                }
-
-                layout_changed |= is_new_layout;
-            });
+            } else {
+                total_flex += flex;
+            }
         }
 
-        self.layout_changed = layout_changed;
-        let our_layout = ShardLayout {
-            bounds: BoundingRect::new(cont_max_width, cont_max_height),
-            padding: Padding::none(),
-            alignment: Alignment::Default,
+        let leftover = match self.direction {
+            Direction::Vertical => stack_max_h - height_used,
+            Direction::Horizontal => stack_max_w - width_used,
+        }
+        .max(0.);
+
+        for child in &mut self.elements {
+            let flex = child.flex();
+            if flex > 0. {
+                let share = leftover * (flex / total_flex);
+                let child_max;
+                let child_min;
+
+                match self.direction {
+                    Direction::Vertical => {
+                        child_min = BoundingRect::new(minor_width, share - padded_height);
+                        child_max = BoundingRect::new(f32::INFINITY, share - padded_height);
+                    }
+
+                    Direction::Horizontal => {
+                        child_min = BoundingRect::new(share - padded_width, minor_height);
+                        child_max = BoundingRect::new(share - padded_width, f32::INFINITY);
+                    }
+                }
+
+                let c_w;
+                let c_h;
+
+                match child {
+                    Element::Normal { node, .. } => {
+                        let bc = BoundingConstraints::new(child_min, child_max);
+                        let (child_layout, is_new) =
+                            ctx.with_constraints(bc, |ctx| node.layout(ctx));
+                        layout_changed |= is_new;
+
+                        if child_layout.align == AxisAlign::Default {
+                            child_layout.align = self.default_align;
+                        }
+
+                        c_w = child_layout.full_bounds().width();
+                        c_h = child_layout.full_bounds().height();
+                    }
+                    Element::Spacer { bounds, .. } => {
+                        *bounds = child_min;
+                        c_w = bounds.width();
+                        c_h = bounds.height();
+                    }
+                }
+
+                minor_height = c_h.max(minor_height);
+                minor_width = c_w.max(minor_width);
+                width_used += c_w + padded_width;
+                height_used += c_h + padded_height;
+            }
+        }
+
+        let our_height = match self.direction {
+            Direction::Horizontal => minor_height + padded_height,
+            Direction::Vertical => height_used,
+        }
+        .max(stack_min_h)
+        .min(stack_max_h);
+
+        let our_width = match self.direction {
+            Direction::Vertical => minor_width + padded_width,
+            Direction::Horizontal => width_used,
+        }
+        .max(stack_min_w)
+        .min(stack_max_w);
+
+        let leftover_space = match self.direction {
+            Direction::Vertical => our_height - height_used,
+            Direction::Horizontal => our_width - width_used,
         };
 
-        if layout_changed {
-            self.plot_elements(&our_layout, |ele, origin| ele.plot_at(origin));
-        }
+        self.layout_changed = layout_changed;
+        let our_bounds = BoundingRect::new(our_width, our_height);
+        let stack_layout = ShardLayout {
+            bounds: our_bounds,
+            padding: Padding::none(),
+            align: AxisAlign::default(),
+        };
 
-        our_layout
+        // Plot all elements.
+        if self.layout_changed && !self.elements.is_empty() {
+            let mut curr_pos = Point::default();
+            let mut gap = 0.;
+            match self.justify_content {
+                Justify::Center => {
+                    gap = leftover_space / 2.;
+                }
+                Justify::End => {
+                    curr_pos = curr_pos + self.direction.skip(leftover_space);
+                }
+                Justify::Start => {}
+                Justify::SpaceAround => {
+                    gap = leftover_space / (self.elements.len() + 1) as f32;
+                    curr_pos += self.direction.skip(gap);
+                }
+                Justify::SpaceBetween => {
+                    gap = leftover_space / (self.elements.len() - 1) as f32;
+                }
+            }
+
+            for ele in &mut self.elements {
+                if ele.flex() < 0. {
+                    continue;
+                }
+
+                let ele_bounds = ele.bounds();
+
+                let rev_our_skip = self
+                    .direction
+                    .rev()
+                    .bounds_skip(our_bounds, Padding::none());
+
+                let rev_ele_skip = self.direction.rev().bounds_skip(ele_bounds, self.padding);
+                let ele_skip = self.direction.bounds_skip(ele_bounds, self.padding);
+
+                if let Some(node) = ele.node_mut() {
+                    let align = node.layout.expect("No layout for node to place").align;
+                    match align {
+                        AxisAlign::Default | AxisAlign::Start => {
+                            node.plot_at(
+                                curr_pos + Point::new(self.padding.left, self.padding.top),
+                            );
+                        }
+                        AxisAlign::End => {
+                            node.plot_at(
+                                (curr_pos + Point::new(0., self.padding.top) + rev_our_skip)
+                                    - rev_ele_skip,
+                            );
+                        }
+                        AxisAlign::Center => {
+                            node.plot_at(
+                                curr_pos
+                                    + Point::new(0., self.padding.top)
+                                    + ((rev_our_skip - rev_ele_skip) / 2.),
+                            );
+                        }
+                    }
+                }
+
+                curr_pos += ele_skip + self.direction.skip(gap);
+            }
+        }
+        stack_layout
     }
 
     fn on_event(&mut self, event_ctx: &mut EventCtx, event: &ShardEvent, app_ctx: &mut Ctx) {
-        for ele in &mut self.elements {
+        for node in self.elements.iter_mut().filter_map(|e| e.node_mut()) {
             if event.is_mouse_event() {
                 self.cursor_at = event_ctx.event_origin();
             }
 
-            ele.route_event(
+            node.route_event(
                 event_ctx.shard_origin(),
                 event_ctx.event_origin(),
                 event,
@@ -282,8 +432,8 @@ impl<Ctx: AppCtx> Shard<Ctx> for Stack<Ctx> {
     }
 
     fn on_ctx_update(&mut self, context: &Ctx) {
-        for shard in &mut self.elements {
-            shard.on_ctx_update(context);
+        for node in self.elements.iter_mut().filter_map(|e| e.node_mut()) {
+            node.on_ctx_update(context);
         }
     }
 
@@ -294,39 +444,35 @@ impl<Ctx: AppCtx> Shard<Ctx> for Stack<Ctx> {
         state: &mut Ctx,
         message: &Ctx::Message,
     ) {
-        for ele in &mut self.elements {
-            ele.route_message(pos, state, message);
+        for node in self.elements.iter_mut().filter_map(|e| e.node_mut()) {
+            node.route_message(pos, state, message);
         }
     }
 
     fn render(&mut self, ctx: &mut RenderCtx) -> Option<(Point, BoundingRect)> {
-        let layout = *ctx.layout();
         let origin = ctx.origin();
 
-        let paint = PaintBrush::Color(self.display.bg);
         let mut results: Option<(Point, BoundingRect)>;
 
         if core::mem::take(&mut self.layout_changed) {
-            ctx.clear(&paint, layout.bounds);
-            for ele in &mut self.elements {
-                ele.render(ctx, true, self.cursor_at);
+            for node in self.elements.iter_mut().filter_map(|e| e.node_mut()) {
+                node.render(ctx, true, self.cursor_at);
             }
 
             results = None;
         } else {
             results = None;
-            ctx.clear(&paint, layout.bounds);
 
-            for ele in &mut self.elements {
-                if ele.is_dirty() {
+            for node in self.elements.iter_mut().filter_map(|e| e.node_mut()) {
+                if node.is_dirty() {
                     // Render and calculate damage
-                    let ele_abs_pos = origin + ele.position();
+                    let ele_abs_pos = origin + node.position();
 
-                    let layout = *ele
+                    let layout = *node
                         .layout_ref()
                         .expect("Attempt to render before laying out elements");
 
-                    ele.render(ctx, false, self.cursor_at);
+                    node.render(ctx, false, self.cursor_at);
                     if let Some((d_pos, d_rect)) = results.as_mut() {
                         let d_last_x = d_pos.x() + d_rect.width();
                         let d_last_y = d_pos.y() + d_rect.height();
@@ -343,7 +489,7 @@ impl<Ctx: AppCtx> Shard<Ctx> for Stack<Ctx> {
                     }
                 } else {
                     // Render only
-                    ele.render(ctx, false, self.cursor_at);
+                    node.render(ctx, false, self.cursor_at);
                 }
             }
         }
