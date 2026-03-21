@@ -397,28 +397,37 @@ impl<Ctx: AppCtx> Shard<Ctx> for Stack<Ctx> {
                     .rev()
                     .bounds_skip(our_bounds, Padding::none());
 
-                let rev_ele_skip = self.direction.rev().bounds_skip(ele_bounds, self.padding);
+                let rev_ele_skip = self
+                    .direction
+                    .rev()
+                    .bounds_skip(ele_bounds, Padding::none());
                 let ele_skip = self.direction.bounds_skip(ele_bounds, self.padding);
 
                 if let Some(node) = ele.node_mut() {
-                    let align = node.layout.expect("No layout for node to place").align;
+                    let layout = node.layout.expect("No layout for node to place");
+                    let align = layout.align;
+                    let padding = layout.padding;
+                    let added = Point::new(padding.left, padding.top);
+
                     match align {
                         AxisAlign::Default | AxisAlign::Start => {
                             node.plot_at(
-                                curr_pos + Point::new(self.padding.left, self.padding.top),
+                                curr_pos + Point::new(self.padding.left, self.padding.top) + added,
                             );
                         }
                         AxisAlign::End => {
                             node.plot_at(
-                                (curr_pos + Point::new(0., self.padding.top) + rev_our_skip)
-                                    - rev_ele_skip,
+                                ((curr_pos + Point::new(0., self.padding.top) + rev_our_skip)
+                                    - rev_ele_skip)
+                                    + added,
                             );
                         }
                         AxisAlign::Center => {
                             node.plot_at(
-                                curr_pos
+                                (curr_pos
                                     + Point::new(0., self.padding.top)
-                                    + ((rev_our_skip - rev_ele_skip) / 2.),
+                                    + ((rev_our_skip - rev_ele_skip) / 2.))
+                                    + added,
                             );
                         }
                     }

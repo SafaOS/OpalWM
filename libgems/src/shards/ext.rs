@@ -1,6 +1,6 @@
 use crate::{
     AppCtx, BoundingRect, EventCtx, Padding, Point, ShardEvent,
-    render::{PaintBrush, TinySkiaCanvas, shapes::Rect},
+    render::{BoundingConstraints, PaintBrush, TinySkiaCanvas, shapes::Rect},
     shards::{LayoutCtx, LifeCycleCtx, RenderCtx, Shard, ShardLayout, lifecycle::LifeCycle},
 };
 
@@ -218,7 +218,21 @@ impl<Ctx: AppCtx, S: Shard<Ctx>> ExtShard<Ctx, S> for PaddedBox<S> {
     }
 
     fn layout(&mut self, ctx: &mut LayoutCtx) -> ShardLayout {
-        let mut a_layout = self.shard.layout(ctx);
+        let constr = ctx.constraints();
+
+        let max_w = constr.max().width() - self.padding.padded_width();
+        let max_h = constr.max().height() - self.padding.padded_height();
+
+        let min_w = constr.min().width().min(max_w);
+        let min_h = constr.min().height().min(max_h);
+
+        let mut a_layout = ctx.with_constraints(
+            BoundingConstraints::new(
+                BoundingRect::new(min_w, min_h),
+                BoundingRect::new(max_w, max_h),
+            ),
+            |ctx| self.shard.layout(ctx),
+        );
         a_layout.padding = self.padding;
         a_layout
     }
