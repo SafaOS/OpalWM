@@ -1,13 +1,14 @@
 use std::marker::PhantomData;
 
 use crate::{BoundingRect, Color, Point};
-use cosmic_text::{Attrs, Buffer, Metrics};
+use cosmic_text::{Attrs, Buffer, Metrics, Wrap};
 
 use crate::{AppCtx, render::PaintBrush, shards::Shard};
 
 #[derive(Debug, Clone)]
 pub struct Label<Ctx: AppCtx> {
     buffer: Buffer,
+    wrap: Wrap,
     text: String,
     text_changed: bool,
     brush: PaintBrush,
@@ -22,6 +23,7 @@ impl<Ctx: AppCtx> Label<Ctx> {
         Self {
             text: data.into(),
             buffer: Buffer::new_empty(Metrics::relative(12., 1.)),
+            wrap: Wrap::WordOrGlyph,
             text_changed: true,
             brush: PaintBrush::Color(Color::BLACK), /* todo environment themeing */
             attrs: Attrs::new(),
@@ -43,6 +45,12 @@ impl<Ctx: AppCtx> Label<Ctx> {
     #[inline]
     pub fn with_color(mut self, color: Color) -> Self {
         self.brush = PaintBrush::Color(color);
+        self
+    }
+
+    #[inline]
+    pub fn with_wrap(mut self, wrap: Wrap) -> Self {
+        self.wrap = wrap;
         self
     }
 
@@ -101,6 +109,7 @@ impl<Ctx: AppCtx> Shard<Ctx> for Label<Ctx> {
             self.text_changed = false;
         }
 
+        buffer.set_wrap(ctx.font_system(), self.wrap);
         buffer.set_size(
             ctx.font_system(),
             width.is_finite().then_some(width),
