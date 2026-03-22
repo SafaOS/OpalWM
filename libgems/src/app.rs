@@ -110,6 +110,15 @@ impl<State: AppState> App<State> {
             for win in &mut self.windows {
                 if win.win_id() == event.receiver() {
                     win.broadcast_event(&mut self.core, event.event());
+                    while !self.core.pending_messages.is_empty() {
+                        while let Some(msg) = self.core.pending_messages.pop() {
+                            win.broadcast_message(&mut self.core, &msg);
+                        }
+
+                        if self.core.pending_messages.is_empty() {
+                            win.update_ctx(&self.core);
+                        }
+                    }
                     break;
                 }
             }

@@ -229,6 +229,15 @@ impl<Ctx: AppCtx + 'static> Window<Ctx> {
         self.root.route_message(Point::default(), state, msg);
     }
 
+    pub fn update_ctx(&mut self, app_state: &Ctx) {
+        let constraints = self.constraints();
+        self.root.layout_if_none(&mut LayoutCtx {
+            font_system: self.cache.font_system(),
+            constraints,
+        });
+        self.root.on_ctx_update(app_state);
+    }
+
     /// Broadcast's an event to the window's elements.
     pub fn broadcast_event(&mut self, app_state: &mut Ctx, event: WindowEvent) {
         let constraints = self.constraints();
