@@ -1,3 +1,5 @@
+use std::{ffi::OsStr, path::PathBuf};
+
 use cosmic_text::{FontSystem, SwashCache};
 use tiny_skia::Pixmap;
 
@@ -67,19 +69,22 @@ pub struct CanvasCache {
 
 impl CanvasCache {
     pub fn new() -> Self {
-        let noto_font_data =
-            std::fs::read("sys:/fonts/NotoSans-Regular.ttf").expect("Failed to open font file");
-        let dejavu_font_data =
-            std::fs::read("sys:/fonts/DejaVuSansMono.ttf").expect("Failed to open font file");
-        let font_system = FontSystem::new_with_fonts([
-            cosmic_text::fontdb::Source::Binary(std::sync::Arc::new(
-                noto_font_data.into_boxed_slice(),
-            )),
-            cosmic_text::fontdb::Source::Binary(std::sync::Arc::new(
-                dejavu_font_data.into_boxed_slice(),
-            )),
-        ]);
+        let fonts_list = std::fs::read("sys:/fonts/fontlist").expect("No fonts found");
 
+        let fonts = fonts_list
+            .split(|c| *c == b'\n')
+            .map(|s| {
+                PathBuf::from("sys:/fonts/").join(unsafe { OsStr::from_encoded_bytes_unchecked(s) })
+            })
+            .filter(|p| p.is_file())
+            .map(|p| {
+                let font_data = std::fs::read(p).expect("Failed to read font data");
+                cosmic_text::fontdb::Source::Binary(std::sync::Arc::new(
+                    font_data.into_boxed_slice(),
+                ))
+            });
+
+        let font_system = FontSystem::new_with_fonts(fonts);
         Self {
             swash_cache: SwashCache::new(),
             font_system: font_system,

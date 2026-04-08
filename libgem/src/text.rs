@@ -105,6 +105,7 @@ impl Text {
             text,
             &Attrs::new(),
             cosmic_text::Shaping::Advanced,
+            None,
         );
 
         let mut changed = false;

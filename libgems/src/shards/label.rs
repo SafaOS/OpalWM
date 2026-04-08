@@ -104,6 +104,7 @@ impl<Ctx: AppCtx> Shard<Ctx> for Label<Ctx> {
                 &self.text,
                 &self.attrs,
                 cosmic_text::Shaping::Advanced,
+                None,
             );
 
             self.text_changed = false;
