@@ -1,7 +1,7 @@
 //! Module containing ABI definitions and helper encoders and decoders for OpalWM's Message Protocol.
 pub mod event;
 pub mod request;
-use macros::EncodeableMessage;
+use libserver::EncodeableMessage;
 pub use request::*;
 pub mod response;
 pub use response::*;

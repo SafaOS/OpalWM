@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace]
-members = ["libgem", "libgems", "libopal", "opal-abi", "opal-img", "opal-abi/macros", "uopal-desktop"]
+members = ["libgem", "libgems", "libserver", "libserver/msg-macros", "libopal", "opal-abi", "opal-img", "opal-abi/macros", "uopal-desktop"]
 
 [dependencies]
 safa-api = { version = "0.4.3", git = "https://github.com/SafaOS/safa-api", features = ["std"] }
@@ -18,7 +18,7 @@ rustc-hash = "2.1.1"
 indexmap = "2.10.0"
 slab = "0.4.11"
 arrayvec = "0.7.6"
-futures-util = "0.3.31"
+libserver = { path = "libserver" }
 
 [profile.release]
 debug = 2

@@ -334,6 +334,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "libserver"
+version = "0.1.0"
+dependencies = [
+ "bincode 2.0.1",
+ "bitflags",
+ "bytemuck",
+ "futures-util",
+ "msg-macros",
+ "safa-api",
+ "thiserror",
+ "wide",
+]
+
+[[package]]
 name = "linebender_resource_handle"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -395,6 +409,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "msg-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
 name = "num-conv"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -435,7 +458,7 @@ dependencies = [
  "bincode 2.0.1",
  "bitflags",
  "bytemuck",
- "macros",
+ "libserver",
  "thiserror",
  "wide",
 ]
@@ -456,9 +479,9 @@ name = "opal-wm"
 version = "0.1.0"
 dependencies = [
  "arrayvec",
- "futures-util",
  "indexmap",
  "libopal",
+ "libserver",
  "opal-abi",
  "opal-img",
  "rustc-hash 2.1.1",

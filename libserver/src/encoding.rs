@@ -1,7 +1,7 @@
 use std::num::NonZero;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct BufferTooSmall;
+pub struct BufferTooSmall;
 
 /// An error that occurs when decoding a message from raw bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
@@ -49,7 +49,7 @@ impl From<BufferTooSmall> for DecodeError {
     }
 }
 
-pub(crate) trait MessageParam: Sized {
+pub trait MessageParam: Sized {
     /// The total amount of bytes this will take.
     fn encode_size(&self) -> usize;
     fn encode_into<W: std::io::Write>(&self, writer: &mut W) -> Result<usize, std::io::Error>;

@@ -7,8 +7,4 @@ pub mod defs;
 pub mod display;
 pub mod msg;
 
-mod encoding;
-mod misc;
-
-pub use encoding::{DecodeError, DecodeErrorOrIo};
-pub use misc::{BufOfMax, Name, StrOfMax};
+pub use libserver::*;

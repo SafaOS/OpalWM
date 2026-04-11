@@ -1,4 +1,4 @@
-use macros::EncodeableMessage;
+use libserver::EncodeableMessage;
 
 use crate::{
     defs::{HeldMouseButtons, KeyModifiers, WindowFlags, WindowID},

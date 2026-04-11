@@ -24,13 +24,14 @@ use safa_api::{
 
 use crate::{
     com::{ClientComPipe, ClientComReceiver, ClientComSender, ReadError},
-    dlog, elog, executor,
+    dlog, elog,
     framebuffer::{FB_INFO, Pixel},
     log, logging,
     shm::SharedObject,
     window::{self, WINDOWS, WinID, Window, WindowKind},
     wlog,
 };
+use libserver::executor;
 
 fn spawn_hello() {
     if let Err(err) = Command::new("sys:/bin/hello_world")
@@ -380,9 +381,9 @@ pub fn listener_thread() {
         opal_use_threads_var.saturating_sub(2 /* this thread, and the input thread */);
     if helper_threads_count != 0 {
         for _ in 0..helper_threads_count {
-            std::thread::spawn(|| executor::run());
+            std::thread::spawn(|| executor::run(crate::window::redraw));
         }
     }
 
-    executor::block_on(listener_loop(listener));
+    executor::block_on(listener_loop(listener), crate::window::redraw);
 }

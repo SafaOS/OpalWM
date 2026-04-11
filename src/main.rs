@@ -14,14 +14,12 @@ use crate::window::redraw;
 const REALLY_VERBOSE: bool = false;
 
 mod com;
-mod executor;
 mod framebuffer;
 mod icons;
 mod kbd;
 mod logging;
 mod mice;
 mod shm;
-mod vtty;
 mod window;
 
 fn main_loop() {

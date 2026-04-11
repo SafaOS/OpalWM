@@ -19,8 +19,6 @@ use futures_util::{
 };
 use safa_api::abi::poll::PollEntry;
 
-use crate::window::redraw;
-
 #[derive(Debug)]
 struct IOPoller {
     current_events: Vec<PollEntry>,
@@ -43,7 +41,7 @@ impl IOPoller {
         );
 
         if self.current_events.is_empty() {
-            crate::thread::yield_now();
+            std::thread::yield_now();
             return;
         }
 
@@ -152,7 +150,9 @@ impl Executor {
     }
 
     /// Runs the executor until all the tasks are completed.
-    pub fn run(&self) {
+    ///
+    /// - refresh is a function that is executed to refresh the pool, if it returns false, that means nothing is truly pending
+    pub fn run(&self, refresh: impl Fn() -> bool) {
         if self
             .running
             .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
@@ -175,7 +175,7 @@ impl Executor {
                     }
                 }
                 Err(TryRecvError::Disconnected) => break,
-                Err(TryRecvError::Empty) if !redraw() => {
+                Err(TryRecvError::Empty) if !refresh() => {
                     // IO Poll until we get task
                     unsafe { &mut *self.io_poller.get() }.poll()
                 }
@@ -232,19 +232,21 @@ async fn handle_messages(vtty: MotherVTTY) {
 }
 
 /// Spawns an executor to execute async tasks, with the given main task.
-pub fn block_on(future: impl Future<Output = ()> + Send + 'static) {
+///
+/// - If refresh returns false, that means there is no more pending futures and we should go to sleep.
+pub fn block_on(future: impl Future<Output = ()> + Send + 'static, refresh: impl Fn() -> bool) {
     ASYNC_CONTEXT.with(|executor| {
         executor.spawn(future);
-        executor.run();
+        executor.run(refresh);
     });
 }
 
 /// Runs the async executor with no main Task.
 ///
 /// Adds the thread to the executors multi-threaded task hivemind.
-pub fn run() {
+pub fn run(refresh: impl Fn() -> bool) {
     ASYNC_CONTEXT.with(|executor| {
-        executor.run();
+        executor.run(refresh);
     });
 }
 
