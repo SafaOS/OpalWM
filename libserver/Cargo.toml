@@ -7,5 +7,5 @@ edition = "2024"
 msg-macros = { path = "msg-macros" }
 bytemuck = "1.24.0"
 thiserror = "2.0.18"
-safa-api = { version = "0.4.3", git = "https://github.com/SafaOS/safa-api", features = ["std"] }
+safa-api = { version = "0.6.0", git = "https://github.com/SafaOS/safa-api", features = ["std"] }
 futures-util = "0.3.31"

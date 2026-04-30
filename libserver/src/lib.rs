@@ -2,6 +2,7 @@
 
 pub mod encoding;
 pub mod executor;
+pub mod logging;
 mod misc;
 pub mod vtty;
 

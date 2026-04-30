@@ -19,19 +19,18 @@ use opal_abi::{
 use safa_api::{
     abi::poll::{PollEntry, PollEvents},
     errors::ErrorStatus,
+    shm::SharedObject,
     sockets::{UnixListener, UnixListenerBuilder, UnixSockConnection, UnixSockKind},
 };
 
 use crate::{
     com::{ClientComPipe, ClientComReceiver, ClientComSender, ReadError},
-    dlog, elog,
     framebuffer::{FB_INFO, Pixel},
     log, logging,
-    shm::SharedObject,
     window::{self, WINDOWS, WinID, Window, WindowKind},
-    wlog,
 };
 use libserver::executor;
+use libserver::{dlog, elog, wlog};
 
 fn spawn_hello() {
     if let Err(err) = Command::new("sys:/bin/hello_world")
@@ -134,7 +133,7 @@ fn handle_preload_icon(
 
     let src_obj = shm_objects.get(&key).ok_or(ResponseError::InvalidShmKey)?;
 
-    let src_obj_data = src_obj.data();
+    let src_obj_data = unsafe { src_obj.data() };
     if src_obj_data.len() < size {
         return Err(ResponseError::SharedObjectTooSmall);
     }
@@ -156,7 +155,7 @@ fn handle_load_icon(
         .ok_or(ResponseError::InvalidShmKey)?;
 
     // Safety: Reading and muttating objects is done with synchronization and checks.
-    let dest_obj_data = unsafe { object.data_inner().as_mut() };
+    let dest_obj_data = unsafe { object.data_ptr().as_mut() };
     if dest_obj_data.len() < icon_data.len() {
         return Err(ResponseError::SharedObjectTooSmall);
     }

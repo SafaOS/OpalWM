@@ -1,12 +1,12 @@
 use std::ptr::NonNull;
 
-use opal_abi::{
-    defs::ShmKey,
-    msg::{AllocateSharedObject, DestroyObject, Request},
+use lune_abi::{
+    ShmKey,
+    msg::{AllocateSharedObject, Request},
 };
 use safa_api::{abi::mem::MemMapFlags, mem::MemoryMapper};
 
-use crate::send_request_or_panic;
+use crate::server;
 
 /// SharedObject represents a shared memory object allocated by the WM.
 #[derive(Debug)]
@@ -19,7 +19,7 @@ impl SharedObject {
     ///
     /// Returns a Result containing the SharedObject or an ErrorStatus if allocation fails.
     pub fn allocate(size: usize) -> Result<Self, safa_api::errors::ErrorStatus> {
-        let key = send_request_or_panic!(
+        let key = server::send_request_or_panic!(
             Request::AllocateObject(AllocateSharedObject::new(size)),
             AllocatedObject(new)
         )
@@ -60,9 +60,6 @@ impl SharedObject {
 
 impl Drop for SharedObject {
     fn drop(&mut self) {
-        send_request_or_panic!(
-            Request::DestroyObject(DestroyObject, self.inner.shm_key()),
-            Success(_s)
-        );
+        server::send_request_or_panic!(Request::DestroyObject(self.inner.shm_key()), Success(_s));
     }
 }

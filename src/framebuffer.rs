@@ -9,7 +9,7 @@ use std::usize;
 
 use safa_api::abi::mem::MemMapFlags;
 
-use crate::dlog;
+use libserver::dlog;
 
 #[inline]
 fn interpret_cords(

@@ -167,6 +167,7 @@ macro_rules! impl_generic {
 
 }
 impl_generic!(int u8 u16 u32 u64 i8 i16 i32 i64 usize isize);
+impl_generic!(f32 f64);
 
 #[macro_export]
 macro_rules! impl_inheritly {

@@ -1,8 +1,9 @@
 [package]
-name = "libopal"
+name = "libartemis"
 version = "0.1.0"
 edition = "2024"
+description = "SafaOS's audio library"
 
 [dependencies]
+lune-abi = { path = "../lune-abi" }
 safa-api = { version = "0.6.0", git = "https://github.com/SafaOS/safa-api", features = ["std"] }
-opal-abi = { path = "../opal-abi" }

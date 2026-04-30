@@ -10,14 +10,17 @@ use std::{
     task::{Context, Waker},
 };
 
-use crate::vtty::{self, ChildVTTY, MotherVTTY};
+use crate::vtty::mother_read_async;
 
 use futures_util::{
     FutureExt,
     future::BoxFuture,
     task::{ArcWake, waker_ref},
 };
-use safa_api::abi::poll::PollEntry;
+use safa_api::{
+    abi::poll::PollEntry,
+    vtty::{ChildVTTY, MotherVTTY},
+};
 
 #[derive(Debug)]
 struct IOPoller {
@@ -191,7 +194,7 @@ static SPAWNER: Mutex<Spawner> = Mutex::new(Spawner::new());
 thread_local! {
     pub static ASYNC_CONTEXT: Executor = {
         let (sender, receiver) = std::sync::mpsc::channel();
-        let (vtty_m, spawner_vtty) = vtty::new();
+        let (vtty_m, spawner_vtty) = safa_api::vtty::new();
 
         vtty_m.set_flags(0).expect("Failed to set VTTY mode to silent");
         let executor_id = SPAWNER.lock().expect("Failed to acquire lock on spawner").add_sender(sender, spawner_vtty);
@@ -223,7 +226,7 @@ pub fn spawn(future: impl Future<Output = ()> + 'static + Send) {
 async fn handle_messages(vtty: MotherVTTY) {
     let mut buf = [0u8; 64];
     loop {
-        vtty.read_async(&mut buf)
+        mother_read_async(&vtty, &mut buf)
             .await
             .expect("Failed to read messages for an executor");
         // TODO: do more message handling here and read buf

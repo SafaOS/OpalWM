@@ -1,10 +1,10 @@
 use std::thread;
 
+use opal_abi::log;
 use safa_api::abi::input::KeyCode;
 
 use crate::com::listener;
 use crate::kbd::Keyboard;
-use crate::logging::disable_terminal_logging;
 use crate::mice::MiceCursor;
 use crate::window::redraw;
 
@@ -17,9 +17,9 @@ mod com;
 mod framebuffer;
 mod icons;
 mod kbd;
-mod logging;
+pub use libserver::logging;
+pub use logging::*;
 mod mice;
-mod shm;
 mod window;
 
 fn main_loop() {

@@ -24,9 +24,7 @@ pub mod primitive;
 use crate::{
     REALLY_VERBOSE,
     com::ClientComPipe,
-    dlog, elog,
     framebuffer::{self, BG_PIXEL, FB_INFO, Framebuffer, Pixel},
-    shm::SharedObject,
     window::{
         decorations::WindowDecorationsMeta,
         primitive::{
@@ -34,6 +32,9 @@ use crate::{
         },
     },
 };
+use libserver::{dlog, elog};
+
+use safa_api::shm::SharedObject;
 
 /// Describes resources for a shared window with another program.
 pub struct SharedWindow {
@@ -92,7 +93,7 @@ impl SharedWindow {
     ) -> Option<(Self, Box<[Pixel]>, Rect, Point)> {
         let width = win_bounds.width();
         let height = win_bounds.height();
-        let pixels_ptr = shm_object.data_inner();
+        let pixels_ptr = shm_object.data_ptr();
         if !(width * height * size_of::<Pixel>() <= pixels_ptr.len()) {
             return None;
         }

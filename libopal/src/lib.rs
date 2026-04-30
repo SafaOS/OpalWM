@@ -62,50 +62,6 @@ macro_rules! send_request_and_get {
             o => panic!("Unexpected response: {o:#?}, expected: {} for request: {:#?}", stringify!($expected), stringify!($single)),
         }
     }};
-
-    // ($req: expr, $expected: ident $(( $capture: ident ))?, $payload: expr) => {{
-    //     let req = $req;
-    //     let payload = $payload;
-    //     let results = $crate::send_request_with_payload(req, payload).expect("failed to send request");
-    //     match results {
-    //         $crate::Response::Ok(o) => {
-    //             match o {
-    //                 ::opal_abi::com::response::OkResponse::$expected$(($capture))? => {
-    //                     Ok({$($capture)?})
-    //                 }
-    //                 o => panic!("Unexpected response: {o:#?}, expected: {} for request: {:#?}", stringify!($expected), req)
-    //             }
-    //         }
-    //         $crate::Response::Err(e) => Err(e),
-    //         $crate::Response::Event(_) => unreachable!(),
-    //     }
-    // }};
-
-
-    // ($req: expr, $expected: ident $(( $capture: ident ))?, then read $am: expr) => {{
-    //     let req = $req;
-    //     let mut connection = $crate::WM_CONNECTION
-    //         .lock()
-    //         .expect("Failed to acquire lock on the WM's connection");
-    //     let results = $crate::send_request_single_inner(&mut connection, req).expect("failed to send request");
-    //     match results {
-    //         $crate::Response::Ok(o) => {
-    //             match o {
-    //                 ::opal_abi::com::response::OkResponse::$expected$(($capture))? => {
-    //                     let amount = $am;
-    //                     let mut bytes = vec![0; amount];
-    //                     if let Err(e) = $crate::wm_read_bytes(&mut connection, &mut bytes) {
-    //                         panic!("Failed to read {amount} bytes from the WM, error: {e:#?}, as per request: {req:#?}");
-    //                     }
-    //                     Ok(bytes)
-    //                 }
-    //                 o => panic!("Unexpected response: {o:#?}, expected: {} for request: {:#?}", stringify!($expected), req)
-    //             }
-    //         }
-    //         $crate::Response::Err(e) => Err(e),
-    //         $crate::Response::Event(_) => unreachable!(),
-    //     }
-    // }};
 }
 
 #[macro_export]
@@ -132,16 +88,6 @@ pub(crate) fn send_request_single_inner<'a>(
     send_request(wm, req)?;
     read_response(wm)
 }
-
-// pub(crate) fn send_request_with_payload(req: RequestKind, payload: &[u8]) -> io::Result<Response> {
-//     let mut connection = WM_CONNECTION
-//         .lock()
-//         .expect("Failed to acquire lock on the WM's connection");
-
-//     send_request(&mut connection, req)?;
-//     connection.write_all(payload)?;
-//     read_response(&mut connection)
-// }
 
 #[inline]
 fn read_response(wm: &mut UnixSockConnection) -> io::Result<Response> {
