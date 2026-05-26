@@ -10,12 +10,16 @@ use lune_abi::StreamID;
 pub use lune_abi::misc::*;
 use safa_api::shm::SharedObject;
 
+pub const TICK_DURATION_MS: usize = 25;
+const BUF_PADDING_MUL: usize = 4;
+
 #[derive(Debug)]
 pub struct Mixer {
     format: AudioFormat,
     out_buffer: Box<[u8]>,
     write_ptr: usize,
     pending_buffer: Vec<f32>,
+    samples_per_ms: usize,
     file: File,
     streams: Vec<Stream>,
     stream_ids: HashMap<StreamID, usize>,
@@ -73,17 +77,37 @@ impl Mixer {
         )
         .expect("Invalid audio format to construct");
 
+        let samples_per_ms = audio_format.samples_per_second() as usize / 1000;
         Self {
             format: audio_format,
-            out_buffer: vec![0; buf_size].into_boxed_slice(),
+            out_buffer: vec![
+                0;
+                samples_per_ms
+                    * TICK_DURATION_MS
+                    * BUF_PADDING_MUL
+                    * (audio_format.bit_depth() as usize / 8)
+            ]
+            .into_boxed_slice(),
             write_ptr: 0,
-            pending_buffer: vec![0.; audio_format.samples_per_second() as usize  /* provides 1 seconds of playback */],
+            pending_buffer: vec![0.; samples_per_ms * TICK_DURATION_MS * BUF_PADDING_MUL],
+            samples_per_ms,
             file,
             streams: Vec::new(),
             stream_ids: HashMap::new(),
             next_stream_id: 0,
             pending_samples: 0,
         }
+    }
+
+    fn ac_queued_samples(&self) -> usize {
+        use std::os::safaos::io::IoUtils;
+
+        const CMD_GET_AC_QUEUED_SAMPLES: u16 = 0x1003;
+        let mut count = 0usize;
+        self.file
+            .send_command(CMD_GET_AC_QUEUED_SAMPLES, (&raw mut count) as u64)
+            .expect("Failed to send a command to file");
+        count
     }
 
     fn flush_existing(&mut self) -> usize {
@@ -98,19 +122,25 @@ impl Mixer {
     }
 
     pub fn flush(&mut self) -> (usize, usize) {
+        // If we don't do that flush could stall as stalling samples will never flush and buf.len() would be zero.
         let before = self.flush_existing();
 
+        let ac_pending_samples = self.ac_queued_samples();
         let ava_samples = self.pending_samples;
         let buf = &mut self.out_buffer[self.write_ptr..];
         let bytes_per_sample = self.format.bit_depth() as usize / 8;
 
+        let single_flush_max_ms = TICK_DURATION_MS * BUF_PADDING_MUL;
+        let to_flush_ms = single_flush_max_ms.abs_diff(ac_pending_samples / self.samples_per_ms);
+        let normalized_max = to_flush_ms * self.samples_per_ms;
+
         let samples = (buf.len() / bytes_per_sample)
+            .min(normalized_max)
             .min(self.pending_buffer.len())
             .min(ava_samples);
         if samples == 0 {
             return (0, 0);
         }
-
         let drained = self.pending_buffer.drain(..samples);
         self.pending_samples -= samples;
 
@@ -155,6 +185,7 @@ impl Mixer {
         self.pending_buffer
             .resize(self.pending_buffer.capacity(), 0.);
         self.write_ptr += samples * bytes_per_sample;
+
         let wrote = self.flush_existing() + before;
         (
             wrote / bytes_per_sample,
@@ -262,9 +293,8 @@ fn resample<'a>(
     }
 
     let ratio = src_freq as f32 / dst_freq as f32;
-    let dst_len = (src_samples_len as f32 / ratio).ceil() as usize;
-    let samples_to_add = dst_len.min(max_samples);
-    let frames_to_add = samples_to_add / channels;
+    let dst_frame_len = ((src_samples_len / channels) as f32 / ratio).ceil() as usize;
+    let frames_to_add = dst_frame_len.min(max_samples / channels);
 
     for i in 0..frames_to_add {
         let src_pos = i as f32 * ratio;
@@ -281,7 +311,7 @@ fn resample<'a>(
         }
     }
 
-    (samples_to_add as f32 * ratio) as usize
+    (frames_to_add as f32 * ratio) as usize * channels
 }
 
 #[inline]
@@ -427,16 +457,27 @@ pub fn mixer_audio_info() -> AudioFormat {
     MIXER.lock().unwrap().format
 }
 
+/// Attempts to flush all of the pending audio samples, may not block.
+pub fn try_flush_pending() -> bool {
+    let mut guard = MIXER.lock().expect("Flush pending failed");
+    if guard.pending_samples == 0 {
+        return false;
+    }
+
+    let (flushed, _left) = guard.flush();
+    flushed != 0
+}
+
 /// attempts to flush all of the pending audio samples to the audio driver, from the mixer.
 ///
 /// returns the amount of samples flushed and the amount of free samples in the pending buffer.
 ///
 /// May block until there are pending samples.
 pub fn flush_pending() -> (usize, usize) {
-    let guard = MIXER.lock().expect("Flush pending failed");
-    let mut guard = AUDIO_WAITERS
-        .wait_while(guard, |guard| guard.pending_samples == 0)
-        .expect("Failed to wait for pending samples to not be zero");
+    let mut guard = MIXER.lock().expect("Flush pending failed");
+    // let mut guard = AUDIO_WAITERS
+    //     .wait_while(guard, |guard| guard.pending_samples == 0)
+    //     .expect("Failed to wait for pending samples to not be zero");
     let (flushed, left) = guard.flush();
     (flushed, left)
 }

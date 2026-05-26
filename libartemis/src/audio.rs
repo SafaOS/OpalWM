@@ -59,13 +59,12 @@ impl<R: Read> AudioPlayer<R> {
         let (data, stream, read_counter) = &mut *guard;
         let m_bytes = self.max_read_bytes - *read_counter;
 
-        let frames_sec = stream.format().freq() as usize;
         let samples_per_frame = stream.format().channels() as usize;
 
         let bpp_sample = stream.bytes_per_sample() as usize;
-        let bpp_frame = samples_per_frame * bpp_sample;
+        let bp_frame = samples_per_frame * bpp_sample;
 
-        let m_frames = m_bytes / bpp_frame;
+        let m_frames = m_bytes / bp_frame;
 
         let mut total_playing = 0;
         let mut pending_sync = 0;
@@ -81,30 +80,29 @@ impl<R: Read> AudioPlayer<R> {
                 drop(paused);
             }
 
-            let read_off = pending_sync * bpp_frame;
-            let read_max = (m_bytes - (total_playing * bpp_frame))
-                .min(bpp_frame * frames_sec.saturating_sub(pending_sync));
+            let read_off = pending_sync * bp_frame;
+            let read_max =
+                (m_bytes - (total_playing * bp_frame)).min(stream.buf_mut().len() - read_off);
             let data_read = data.read(&mut stream.buf_mut()[read_off..read_off + read_max])?;
             *read_counter += data_read;
 
-            pending_sync += data_read / bpp_frame;
+            pending_sync += data_read / bp_frame;
 
             let synced = stream.sync(0, (pending_sync * samples_per_frame) as u32);
-
             let synced_frames = synced as usize / samples_per_frame;
             pending_sync -= synced_frames;
             total_playing += synced_frames;
 
             stream
                 .buf_mut()
-                .copy_within((synced_frames * bpp_frame).., 0);
+                .copy_within((synced_frames * bp_frame).., 0);
 
             if total_playing >= m_frames {
                 break;
             }
         }
 
-        Ok(total_playing as usize * bpp_frame)
+        Ok(total_playing as usize * bp_frame)
     }
 }
 #[repr(C)]

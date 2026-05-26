@@ -1,8 +1,10 @@
+use std::time::Duration;
+
 use libserver::{log, logging::disable_terminal_logging};
 
 use crate::{
     com::listener::listener_thread,
-    stream::{flush_pending, mixer_audio_info},
+    stream::{TICK_DURATION_MS, flush_pending, mixer_audio_info},
 };
 
 mod com;
@@ -14,7 +16,7 @@ fn mix_loop() -> ! {
 
     loop {
         let (_, _) = flush_pending();
-        std::thread::yield_now();
+        std::thread::sleep(Duration::from_millis(TICK_DURATION_MS as u64));
     }
 }
 fn main() {
