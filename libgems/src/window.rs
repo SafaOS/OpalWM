@@ -8,13 +8,16 @@ use libopal::{
 use crate::{
     AppCtx, EventCtx, Padding,
     render::{BoundingConstraints, BoundingRect, CanvasCache, PaintBrush, Point},
-    shards::{Button, Label, LayoutCtx, Shard, ShardNode, ShardsExt, Stack},
+    shards::{Button, Label, LayoutCtx, Shard, ShardNode, ShardsExt, Stack, lifecycle::LifeCycle},
 };
 
 #[derive(Debug, Clone)]
 pub struct WindowBuilder<'a> {
     width: u32,
     height: u32,
+    x: Option<i32>,
+    y: Option<i32>,
+    use_all_space: bool,
     bg: PaintBrush,
     title: &'a str,
 }
@@ -26,6 +29,9 @@ impl<'a> WindowBuilder<'a> {
         Self {
             width,
             height,
+            x: None,
+            y: None,
+            use_all_space: true,
             bg: PaintBrush::Color(super::Color::WHITE),
             title: "",
         }
@@ -37,9 +43,26 @@ impl<'a> WindowBuilder<'a> {
         self
     }
 
+    /// Whether or not the window's root should fill the entire window
+    /// DEFAULT = true.
+    pub const fn use_all_space(mut self, u: bool) -> Self {
+        self.use_all_space = u;
+        self
+    }
+
     #[inline]
     pub fn background(mut self, background: impl Into<PaintBrush>) -> Self {
         self.bg = background.into();
+        self
+    }
+
+    pub fn x(mut self, x: Option<i32>) -> Self {
+        self.x = x;
+        self
+    }
+
+    pub fn y(mut self, y: Option<i32>) -> Self {
+        self.y = y;
         self
     }
 
@@ -65,6 +88,7 @@ impl<'a> WindowBuilder<'a> {
             ),
             self.bg,
             root,
+            self.use_all_space,
         )
     }
 }
@@ -79,7 +103,52 @@ pub struct Window<Ctx: AppCtx> {
     mouse_button_state: HeldMouseButtons,
 }
 
-impl<Ctx: AppCtx + 'static> Window<Ctx> {
+impl<Ctx: AppCtx> Window<Ctx> {
+    pub fn set_title(&mut self, title: impl AsRef<str>) {
+        self.root.route_lifecycle(&LifeCycle::WindowMetaChanged {
+            title: title.as_ref(),
+        });
+
+        self.try_redraw();
+    }
+
+    pub const fn inner_mut(&mut self) -> &mut libopal::window::Window {
+        &mut self.inner
+    }
+
+    pub fn raw_pixels(&mut self) -> &mut [Pixel] {
+        self.inner.pixels_mut()
+    }
+
+    /// A lightweight function to return a slice of the unoccupied pixels of the window and their area (i.e no shards currently)
+    ///
+    /// Shouldn't be used with window content that could potinetally grow (TODO add RawTexture's?).
+    ///
+    /// E.g you can use that to implement over this library's title bar.
+    pub fn unoccupied_pixels(&mut self) -> Option<(&mut [Pixel], u32, BoundingRect)> {
+        let constraints = self.constraints();
+        let (root_layout, _) = self.root.layout(&mut LayoutCtx {
+            font_system: self.cache.font_system(),
+            constraints,
+        });
+
+        let occupied_height = root_layout.full_bounds().height().ceil() as u32;
+        let window_height = self.inner.height();
+        let window_width = self.inner.width();
+        let unoccupied_height = window_height - occupied_height;
+
+        if unoccupied_height == 0 {
+            return None;
+        }
+
+        let pixels = &mut self.raw_pixels()[(occupied_height * window_width) as usize..];
+        Some((
+            pixels,
+            occupied_height,
+            BoundingRect::new(window_width as f32, unoccupied_height as f32),
+        ))
+    }
+
     /// Returns the Window ID of this Window.
     #[inline]
     pub fn win_id(&self) -> WindowID {
@@ -91,16 +160,18 @@ impl<Ctx: AppCtx + 'static> Window<Ctx> {
         inner: libopal::window::Window,
         bg: PaintBrush,
         root: Root,
+        fill_with_root: bool,
     ) -> Self {
         let used_root;
         if title.is_empty() {
-            used_root = ShardNode::new(
-                Stack::row()
-                    .with(root)
-                    .with_padding(Padding::none())
-                    .fix_size(inner.width() as f32, inner.height() as f32)
-                    .background(bg),
-            );
+            let mut it = Stack::row()
+                .with(root)
+                .with_padding(Padding::none())
+                .fix_width(inner.width() as f32);
+            if fill_with_root {
+                it = it.fix_height(inner.height() as f32);
+            }
+            used_root = ShardNode::new(it.background(bg));
         } else {
             use super::Color;
             use super::shards::AxisAlign;
@@ -111,35 +182,45 @@ impl<Ctx: AppCtx + 'static> Window<Ctx> {
             let btn_flex = (3. * btn_width) / win_width;
             let spacer2_flex = 1.0 - btn_flex;
 
-            used_root = ShardNode::new(
-                Stack::<Ctx>::row()
-                    .with_padding(Padding::none())
-                    .with(
-                        Stack::<Ctx>::column()
-                            .with_padding(Padding::none())
-                            .with_spacer(1.)
-                            .with_flex(
-                                Label::from_str(title)
-                                    .with_metrics(Metrics::relative(13., 1.))
-                                    .center_text(),
-                                1.,
-                            )
-                            .with_spacer(spacer2_flex)
-                            .with_flex(
-                                Button::new(Label::from_str("X"))
-                                    .with_paint(Color::NONE)
-                                    .on_click(|_, _, _| std::process::exit(0)),
-                                btn_flex,
-                            )
-                            .align(AxisAlign::Center)
-                            .background(Color::rgb(0xFD, 0xB0, 0xC0))
-                            .fix_height(title_height)
-                            .fix_width(win_width),
-                    )
-                    .with(root)
-                    .fix_size(inner.width() as f32, inner.height() as f32)
-                    .background(bg),
-            );
+            let mut it = Stack::<Ctx>::row()
+                .with_padding(Padding::none())
+                .with(
+                    Stack::<Ctx>::column()
+                        .with_padding(Padding::none())
+                        .with_spacer(1.)
+                        .with_flex(
+                            Label::from_str(title)
+                                .with_metrics(Metrics::relative(13., 1.))
+                                .center_text()
+                                .on_lifecycle(|_, l, this| match l {
+                                    LifeCycle::WindowMetaChanged { title, .. } => {
+                                        this.set_text(title);
+                                    }
+                                    LifeCycle::Init { window_title } => {
+                                        this.set_text(window_title);
+                                    }
+                                    _ => {}
+                                }),
+                            1.,
+                        )
+                        .with_spacer(spacer2_flex)
+                        .with_flex(
+                            Button::new(Label::from_str("X"))
+                                .with_paint(Color::NONE)
+                                .on_click(|_, _, _| std::process::exit(0)),
+                            btn_flex,
+                        )
+                        .align(AxisAlign::Center)
+                        .background(Color::rgb(0xFD, 0xB0, 0xC0))
+                        .fix_height(title_height)
+                        .fix_width(win_width),
+                )
+                .with(root)
+                .fix_width(inner.width() as f32);
+            if fill_with_root {
+                it = it.fix_height(inner.height() as f32);
+            }
+            used_root = ShardNode::new(it.background(bg));
         }
         let mut this = Self {
             root: used_root,
@@ -149,7 +230,9 @@ impl<Ctx: AppCtx + 'static> Window<Ctx> {
             inner,
         };
         this.root
-            .route_lifecycle(&crate::shards::lifecycle::LifeCycle::Init);
+            .route_lifecycle(&crate::shards::lifecycle::LifeCycle::Init {
+                window_title: title,
+            });
         this
     }
 
@@ -194,8 +277,11 @@ impl<Ctx: AppCtx + 'static> Window<Ctx> {
             return;
         }
 
-        let damage_h = damage_h.min(win_height - damage_y);
-        let damage_w = damage_w.min(win_width - damage_x);
+        let damage_h = damage_h
+            .min(win_height - damage_y)
+            .min(pix_height - damage_y);
+        let damage_w = damage_w.min(win_width - damage_x).min(pix_width - damage_x);
+
         for row in damage_y..(damage_y + damage_h) {
             let start_index = ((row * pix_width) + damage_x) as usize;
             let end_index = (start_index + damage_w as usize) as usize;

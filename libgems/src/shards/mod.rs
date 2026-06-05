@@ -108,6 +108,20 @@ pub trait Shard<Context: AppCtx> {
     }
 }
 
+/// Does Absolutely Nothing
+impl<Ctx: AppCtx> Shard<Ctx> for () {
+    fn dirty(&self) -> bool {
+        false
+    }
+    fn layout(&mut self, _: &mut LayoutCtx) -> ShardLayout {
+        ShardLayout::default()
+    }
+    fn render(&mut self, ctx: &mut RenderCtx) -> Option<(Point, BoundingRect)> {
+        _ = ctx;
+        None
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 /// Describes the state of a [`Shard`].
 ///

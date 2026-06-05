@@ -47,7 +47,7 @@ impl<Ctx: AppCtx> Shard<Ctx> for Button<Ctx> {
 
     fn lifecycle(&mut self, _: &mut super::lifecycle::LifeCycleCtx, event: &LifeCycle) {
         match event {
-            LifeCycle::Init | LifeCycle::HotChanged(_) => self.dirty = true,
+            LifeCycle::Init { .. } | LifeCycle::HotChanged(_) => self.dirty = true,
             _ => {}
         }
     }

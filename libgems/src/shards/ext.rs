@@ -124,6 +124,16 @@ pub trait ShardsExt<Ctx: AppCtx>: Sized + Shard<Ctx> {
         }
     }
 
+    fn on_lifecycle<F: FnMut(&mut LifeCycleCtx, &LifeCycle, &mut Self) + 'static>(
+        self,
+        f: F,
+    ) -> OnLifeCycle<Self, F> {
+        OnLifeCycle {
+            shard: self,
+            action: f,
+        }
+    }
+
     /// Fixes the width of the shard.
     fn fix_width(self, width: f32) -> SizedBox<Self> {
         SizedBox {
@@ -404,6 +414,31 @@ impl<Ctx: AppCtx, S: Shard<Ctx>> ExtShard<Ctx, S> for OnUpdate<Ctx, S> {
 
 impl_deref!(OnUpdate<Ctx, S>, S, Ctx: AppCtx, S: Shard<Ctx>);
 ext_impl!(OnUpdate<Ctx, S>, S: Shard<Ctx>);
+
+/// Represents an action that can be performed when a LifeCycle Event is received.
+pub struct OnLifeCycle<S, F: FnMut(&mut LifeCycleCtx, &LifeCycle, &mut S) + 'static> {
+    shard: S,
+    action: F,
+}
+
+impl<Ctx: AppCtx, S: Shard<Ctx>, F: FnMut(&mut LifeCycleCtx, &LifeCycle, &mut S) + 'static>
+    ExtShard<Ctx, S> for OnLifeCycle<S, F>
+{
+    fn inner(&self) -> &S {
+        &self.shard
+    }
+    fn inner_mut(&mut self) -> &mut S {
+        &mut self.shard
+    }
+
+    fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle) {
+        (self.action)(ctx, event, &mut self.shard);
+        self.shard.lifecycle(ctx, event);
+    }
+}
+
+impl_deref!(OnLifeCycle<S, F>, S, S, F: FnMut(&mut LifeCycleCtx, &LifeCycle, &mut S) + 'static);
+ext_impl!(OnLifeCycle<S, F>, S: Shard<Ctx>, F: FnMut(&mut LifeCycleCtx, &LifeCycle, &mut S) + 'static);
 
 /// Represents an action that can be performed when a Message is received.
 pub struct OnMessage<Ctx: AppCtx, S: Shard<Ctx>> {

@@ -207,7 +207,7 @@ impl<Ctx: AppCtx> Shard<Ctx> for Stack<Ctx> {
     }
     fn lifecycle(&mut self, _: &mut super::lifecycle::LifeCycleCtx, event: &LifeCycle) {
         match event {
-            LifeCycle::Init => {
+            LifeCycle::Init { .. } | LifeCycle::WindowMetaChanged { .. } => {
                 for ele in &mut self.elements {
                     if let Some(node) = ele.node_mut() {
                         node.route_lifecycle(event);

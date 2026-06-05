@@ -2,9 +2,15 @@ use crate::shards::ShardState;
 
 /// Represents a LifeCycle event to the widgets internal state or any changes that isn't picked by [`super::ShardEvent`].
 #[derive(Debug, Clone, Copy)]
-pub enum LifeCycle {
+#[non_exhaustive]
+pub enum LifeCycle<'a> {
     /// The initial LifeCycle when a Widget is added.
-    Init,
+    Init {
+        window_title: &'a str,
+    },
+    WindowMetaChanged {
+        title: &'a str,
+    },
     /// Generated If the hot status (hover status) of the widget changed.
     HotChanged(bool),
     /// Generated If the disabled status of the widget changed by an outsider.
