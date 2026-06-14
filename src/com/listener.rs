@@ -187,6 +187,23 @@ async fn handle_event_on(
             Request::CreateWindow(request) => {
                 handle_create_window(pipe, window_ids, shm_objects, request)
             }
+            Request::DestroyWindow(win_id) => 'blk: {
+                if let Some(pos) = window_ids.iter().position(|id| *id == win_id) {
+                    window_ids.remove(pos);
+                } else {
+                    break 'blk Err(ResponseError::UnknownWindow);
+                }
+
+                let mut windows = WINDOWS.lock().expect(
+                    "Failed to acquire lock on Windows when cleaning up after disconnecting",
+                );
+
+                dlog!("Destroying window: {win_id}");
+                if let Err(()) = windows.remove_window(win_id) {
+                    wlog!("Failed to remove window {win_id}");
+                }
+                Ok(Response::ok())
+            }
             Request::DamageWindow(damage, win_id) => {
                 if let Err(()) = window::damage_window_async(
                     win_id,

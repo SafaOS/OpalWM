@@ -126,3 +126,9 @@ pub fn window_info(win_id: WindowID) -> Result<WindowInfo, WindowError> {
         },
     )
 }
+
+impl Drop for Window {
+    fn drop(&mut self) {
+        send_request_or_panic!(Request::DestroyWindow(self.id()), Success(_s));
+    }
+}

@@ -192,6 +192,7 @@ pub enum Request {
     FocusWindow(FocusWindow, WindowID) = 0xA7,
     AllocateObject(AllocateSharedObject) = 0xA8,
     DestroyObject(DestroyObject, ShmKey) = 0xA9,
+    DestroyWindow(WindowID) = 0xAA,
 }
 
 impl Eq for Request {}
