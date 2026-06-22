@@ -1,85 +1,12 @@
 use libopal::window::Pixel;
 
 use crate::window::primitive::{Point, Rect, UPoint};
+mod corners;
+pub mod shadows;
 
-#[derive(Debug, Clone, Copy)]
-pub enum DrawVerb {
-    DrawPoint(Point, Pixel),
-    DrawRect(Point, Rect, Pixel),
-}
+use corners::*;
 
-#[derive(Debug, Clone)]
-struct CachedDrawing {
-    verbs: Vec<DrawVerb>,
-}
-
-impl CachedDrawing {
-    const fn new() -> Self {
-        Self { verbs: Vec::new() }
-    }
-    fn add_area(&mut self, at: Point, rect: Rect) {
-        _ = at;
-        _ = rect;
-    }
-    fn add_point(&mut self, at: Point, color: Pixel) {
-        self.verbs.push(DrawVerb::DrawPoint(at, color));
-        self.add_area(at, Rect::new(1, 1));
-    }
-
-    fn add_rect(&mut self, point: Point, rect: Rect, color: Pixel) {
-        for verb in &mut self.verbs {
-            match verb {
-                DrawVerb::DrawRect(s_point, s_rect, s_color) => {
-                    if color != *s_color {
-                        continue;
-                    }
-
-                    let s_x_end = Point::new(s_point.x() + s_rect.width as isize, s_point.y());
-                    let s_y_end = Point::new(s_point.x(), s_point.y() + s_rect.height as isize);
-
-                    if s_x_end == point && s_rect.height == rect.height {
-                        s_rect.width += rect.width;
-                        return;
-                    }
-
-                    if s_y_end == point && s_rect.width == rect.width {
-                        s_rect.height += rect.height;
-                        return;
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        self.verbs.push(DrawVerb::DrawRect(point, rect, color));
-        self.add_area(point, rect);
-    }
-
-    fn apply_on(&self, bounds: Rect, pixels: &mut [Pixel]) {
-        for verb in &*self.verbs {
-            match verb {
-                DrawVerb::DrawPoint(at, pixel) => {
-                    let index = (at.y() * bounds.width as isize) + at.x();
-                    if index >= 0 && index < pixels.len() as isize {
-                        pixels[index as usize] = *pixel;
-                    }
-                }
-                DrawVerb::DrawRect(at, rect, pixel) => {
-                    let x = at.x() as usize;
-                    let y = at.y() as usize;
-
-                    let width = rect.width.min(bounds.width.saturating_sub(x));
-                    let height = rect.height.min(bounds.height.saturating_sub(y));
-                    for row in 0..height {
-                        let start_index = ((y + row) * bounds.width) as usize + x;
-                        let end_index = start_index + width as usize;
-                        pixels[start_index..end_index].fill(*pixel);
-                    }
-                }
-            }
-        }
-    }
-}
+const BORDER_THICKNESS: usize = 2;
 
 #[derive(Debug, Clone)]
 pub struct WindowDecorationsMeta {
@@ -89,6 +16,10 @@ pub struct WindowDecorationsMeta {
     /// for the bottom `radius` rows for each y, Y = height - y (if y > height - radius)
     corner_mask_span: Box<[usize]>,
     corner_radius: u32,
+    thickness: u32,
+    draw_x: usize,
+    draw_y: usize,
+    bounds: Rect,
 }
 
 impl WindowDecorationsMeta {
@@ -114,53 +45,74 @@ impl WindowDecorationsMeta {
         let dst_width;
         let dst_height;
 
+        // The difference between the src width and the dst width
         let x_diff;
+        // The difference between the src height and the dst height.
         let y_diff;
-        if border.is_some() {
-            x_diff = 1;
-            y_diff = 1;
-            dst_width = bounds.width() + 2;
-            dst_height = bounds.height() + 2;
+        let b_off_x;
+        let b_off_y;
+
+        if let Some(border) = border {
+            x_diff = border.draw_x;
+            y_diff = border.draw_y;
+            dst_width = border.bounds.width();
+            dst_height = border.bounds.height();
+            b_off_x = border.draw_x.saturating_sub(border.thickness as usize);
+            b_off_y = border.draw_y.saturating_sub(border.thickness as usize)
         } else {
+            // No decorations dst == src.
             x_diff = 0;
             y_diff = 0;
+            b_off_x = 0;
+            b_off_y = 0;
             dst_width = bounds.width();
             dst_height = bounds.height();
         }
 
+        // initial dst x
         let dst_x = src_x + x_diff;
-        for y in src_y..(src_y + target_height) {
-            let dst_y = y + y_diff;
+        for sy in src_y..(src_y + target_height) {
+            // initial dst y
+            let dst_y = sy + y_diff;
+            // rounded up src x, may change
             let mut r_src_x = src_x;
+            // rounded up dst x, may change
             let mut r_dst_x = dst_x;
+            // rounded up dst width, may change
             let mut r_target_width = target_width;
 
             // Skip corner mask pixels
             if let Some(border) = border
                 && border.corner_radius > 0
             {
+                // Y relative to the border
+                let by = dst_y - b_off_y;
                 let radius = border.corner_radius as usize;
                 let corner_mask = &border.corner_mask_span;
 
                 let skip;
-                if dst_y < radius {
-                    skip = Some(corner_mask[dst_y]);
-                } else if dst_y >= dst_height - radius {
-                    skip = Some(corner_mask[dst_height - dst_y - 1]);
+                if by < radius {
+                    skip = Some(corner_mask[by]);
+                } else if by >= (dst_height - (b_off_y * 2)) - radius {
+                    skip = Some(corner_mask[(dst_height - (b_off_y * 2)) - by - 1]);
                 } else {
                     skip = None;
                 }
 
                 if let Some(skip) = skip
-                    && skip >= x_diff
+                    && skip >= x_diff - b_off_x
                 {
-                    r_src_x = r_src_x.max(skip - x_diff);
-                    r_target_width = target_width.min(src_width - r_src_x - (skip - x_diff));
-                    r_dst_x = r_dst_x.max(skip);
+                    // skip is relative to border, translate to src
+                    let src_skip = skip - (x_diff - b_off_x);
+                    r_src_x = r_src_x.max(src_skip);
+                    // Width is src specific, and we want to cut both ends of skip from it.
+                    r_target_width = target_width.min(src_width - r_src_x - src_skip);
+                    // dst is just the offset of the border + pixels to skip
+                    r_dst_x = r_dst_x.max(b_off_x + skip);
                 }
             }
 
-            let src_start = (y * src_width) + r_src_x;
+            let src_start = (sy * src_width) + r_src_x;
             let src_end = src_start + r_target_width;
 
             let dst_start = (dst_y * dst_width) + r_dst_x;
@@ -170,108 +122,64 @@ impl WindowDecorationsMeta {
         UPoint::new(src_x + x_diff, src_y + y_diff)
     }
     pub fn new(bounds: Rect, fill_with: Pixel) -> (Self, Box<[Pixel]>, Rect, Point) {
-        Self::new_inner(bounds, 8, fill_with, Pixel::rgb(0xFD, 0xB0, 0xC0))
+        Self::new_inner(bounds, fill_with, Pixel::rgb(0xFD, 0xB0, 0xC0))
     }
 
     fn new_inner(
         bounds: Rect,
-        corner_radius: u32,
         fill_with: Pixel,
         border_color: Pixel,
     ) -> (Self, Box<[Pixel]>, Rect, Point) {
-        let width = bounds.width + 2;
-        let height = bounds.height + 2;
+        let border_off = UPoint::new(40, 40);
+        let border_width = bounds.width + (2 * BORDER_THICKNESS);
+        let border_height = bounds.height + (2 * BORDER_THICKNESS);
+
+        let width = border_width + border_off.x() * 2;
+        let height = border_height + border_off.y() * 2;
+
+        let border_bounds = Rect::new(border_width, border_height);
+        let full_bounds = Rect::new(width, height);
+
         let mut pixels = vec![fill_with; width * height].into_boxed_slice();
-        let diameter = (corner_radius * 2) as usize;
 
-        let mut rendering = CachedDrawing::new();
-
-        // Each element is a [Y] => (K) where K is the amount of pixels to cut from each side.
-        // for the top `radius` rows, Y represents the Y coordinate of the row (Y = y if y < radius).
-        //
-        // for the bottom `radius` rows for each y, Y = height - y (if y > height - radius)
-        let mut corner_mask_span = vec![0usize; corner_radius as usize].into_boxed_slice();
-
-        // Math to mask rounded corners
-        // (Thanks to sasdallas for code I stole, kinda)
-        let f_radius = corner_radius as f32;
-        let radius = corner_radius as isize;
-        for dy in 0..radius {
-            for dx in 0..radius {
-                let dist_sq = dx * dx + dy * dy;
-                if dist_sq <= radius * radius && dist_sq >= (radius - 1) * (radius - 1) {
-                    let dist = (dist_sq as f32).sqrt();
-
-                    // anti-aliasing I think
-                    let alpha = if dist > f_radius - 1.0 {
-                        1.0 - (dist - (f_radius - 1.0)).max(0.0)
-                    } else {
-                        1.0
-                    };
-
-                    let alpha_u8 = (alpha * 255.0) as u8;
-                    let color = Pixel::rgba(
-                        border_color.r(),
-                        border_color.g(),
-                        border_color.b(),
-                        alpha_u8,
-                    );
-
-                    let x = radius - dx - 1;
-                    let y = radius - dy - 1;
-                    let x2 = width as isize - radius + dx;
-                    let y2 = height as isize - radius + dy;
-
-                    rendering.add_point(Point::new(x, y), color);
-                    rendering.add_point(Point::new(x2, y), color);
-                    rendering.add_point(Point::new(x, y2), color);
-                    rendering.add_point(Point::new(x2, y2), color);
-
-                    if y >= 0 {
-                        let skip = corner_mask_span[y as usize].max(
-                            ((x + 1).is_positive())
-                                .then(|| (x + 1) as usize)
-                                .unwrap_or(0),
-                        );
-                        corner_mask_span[y as usize] = skip;
-                    }
-                }
-            }
-        }
-
-        rendering.add_rect(
-            Point::new(0, corner_radius as isize),
-            Rect::new(1, height - diameter),
+        let corner_mask_span = draw_rounded_rect(
+            &mut *pixels,
+            border_off,
+            border_width,
+            border_height,
+            width,
+            height,
+            BORDER_THICKNESS,
             border_color,
-        );
-        rendering.add_rect(
-            Point::new(width as isize - 1, corner_radius as isize),
-            Rect::new(1, height - diameter),
-            border_color,
+            Some(Pixel::BLACK),
         );
 
-        rendering.add_rect(
-            Point::new(corner_radius as isize, 0),
-            Rect::new(width - diameter, 1),
-            border_color,
+        shadows::draw_shadow(
+            &mut pixels,
+            full_bounds,
+            border_off,
+            border_bounds,
+            12,
+            12,
+            Pixel::BLACK,
+            UPoint::new(2, 4),
+            0.4,
         );
+        let draw_x = border_off.x() + BORDER_THICKNESS;
+        let draw_y = border_off.y() + BORDER_THICKNESS;
 
-        rendering.add_rect(
-            Point::new(corner_radius as isize, height as isize - 1),
-            Rect::new(width - diameter, 1),
-            border_color,
-        );
-
-        let bordered_bounds = Rect::new(width, height);
-        rendering.apply_on(bordered_bounds, &mut pixels);
         (
             Self {
                 corner_mask_span,
-                corner_radius,
+                corner_radius: CORNER_RADIUS as u32,
+                thickness: BORDER_THICKNESS as u32,
+                draw_x,
+                draw_y,
+                bounds: full_bounds,
             },
             pixels,
-            bordered_bounds,
-            Point::new(-1, -1),
+            full_bounds,
+            Point::new(-(draw_x as isize), -(draw_y as isize)),
         )
     }
 }

@@ -91,7 +91,7 @@ impl Window {
 
         let id = window.window_id();
         let mut window = Self::new_inner(id, object, width, height);
-        window.pixels_mut().fill(Pixel::NONE);
+        window.pixels_mut().fill(Pixel::BLACK);
 
         window
     }

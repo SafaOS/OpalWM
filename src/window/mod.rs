@@ -138,6 +138,9 @@ impl SharedWindow {
 
 /// A Rectangle
 pub struct Window {
+    /// -position of the window content relative to the entire window.
+    anchor_by: Point,
+    /// The whole rectangle of the window including it's decoration, with transform position.
     rect: TransformRect,
     pixels: Box<[Pixel]>,
     shared_resources: Option<SharedWindow>,
@@ -203,14 +206,6 @@ impl Window {
 
     pub const fn height(&self) -> usize {
         self.rect.height()
-    }
-
-    pub const fn max_x(&self) -> isize {
-        self.rect.x() + self.rect.width() as isize
-    }
-
-    pub const fn max_y(&self) -> isize {
-        self.rect.y() + self.rect.height() as isize
     }
 
     pub fn name(&self) -> &str {
@@ -298,6 +293,7 @@ impl Window {
         let rect = TransformRect::new(Point::new(x, y), Rect::new(width, height));
 
         Window::new_inner(
+            Point::new(0, 0),
             name,
             icon,
             rect,
@@ -319,28 +315,29 @@ impl Window {
         flags: WindowFlags,
         shared: Option<(Arc<SharedObject>, Arc<ClientComPipe>)>,
     ) -> Option<Self> {
+        let win_rect = Rect::new(width, height);
         let bounds_rect;
         let pixels;
         let shared_resources;
         let anchor;
 
         if let Some((shm_object, com_pipe)) = shared {
-            let win_bounds = Rect::new(width, height);
             let decorate = !flags.contains(WindowFlags::NO_DECORATIONS);
             let (sh, r_pixels, r_bounds, r_anchor) =
-                SharedWindow::create(win_bounds, shm_object, com_pipe, decorate, pixel)?;
+                SharedWindow::create(win_rect, shm_object, com_pipe, decorate, pixel)?;
             pixels = r_pixels;
             shared_resources = Some(sh);
             bounds_rect = r_bounds;
             anchor = r_anchor;
         } else {
             shared_resources = None;
-            bounds_rect = Rect::new(width, height);
+            bounds_rect = win_rect;
             anchor = Point::new(0, 0);
             pixels = vec![pixel; width * height].into_boxed_slice();
         }
 
         Some(Window::new_inner(
+            anchor,
             name,
             icon,
             TransformRect::new(Point::new(x, y) + anchor, bounds_rect),
@@ -351,6 +348,7 @@ impl Window {
     }
 
     fn new_inner(
+        anchor_by: Point,
         name: Name,
         icon: Option<IconID>,
         rect: TransformRect,
@@ -365,6 +363,7 @@ impl Window {
             name,
             shared_resources,
             status: WindowStatus::empty(),
+            anchor_by,
             flags,
         }
     }
@@ -403,10 +402,11 @@ const MAX_WINDOW_ID: usize = 1024 /* TODO: more windows? */;
 pub type WinID = u16;
 
 /// The type of the Window, defines the ordering which a Window may come over another, for example the cursor uses [`WindowKind::Overlay`]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WindowKind {
     /// Always displayed above all other windows
     Overlay,
+    #[default]
     /// Normal ordering
     Normal,
     /// Background Window, always displayed below all other windows
@@ -597,16 +597,11 @@ impl Windows {
         let screen_height = FB_INFO.height as isize;
 
         if can_relocate {
-            let mut new_x = 0;
-            let mut new_y = 0;
+            let new_x;
+            let new_y;
 
-            if !(window.max_x() > screen_width) {
-                new_x = (screen_width - window.width() as isize) / 2;
-            }
-
-            if !(window.max_y() > screen_height) {
-                new_y = (screen_height - window.height() as isize) / 2;
-            }
+            new_x = (screen_width - window.width() as isize) / 2;
+            new_y = (screen_height - window.height() as isize) / 2;
 
             window.set_position_in_place(new_x, new_y);
         }
@@ -722,8 +717,10 @@ impl Windows {
                 .windows
                 .get(win_id)
                 .expect("Window wasn't removed from the Z-ordering when it's ID was deallocated");
+            // Use of overlaps with within is because the window square is actually inside -anchor within the window
+            // and the window rect may contain decorations or such.
             region
-                .overlaps_with(&win.rect)
+                .overlaps_with_within(-win.anchor_by, &win.rect)
                 .map(|point| (*win_id, WindowKind::Overlay, point))
         });
         results.or_else(|| {
@@ -732,7 +729,7 @@ impl Windows {
                     "Window wasn't removed from the Z-ordering when it's ID was deallocated",
                 );
                 region
-                    .overlaps_with(&win.rect)
+                    .overlaps_with_within(-win.anchor_by, &win.rect)
                     .map(|point| (*win_id, WindowKind::Normal, point))
             })
         })

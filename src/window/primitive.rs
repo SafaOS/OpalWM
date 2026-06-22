@@ -1,6 +1,6 @@
 use std::{
     iter::Sum,
-    ops::{Add, Deref},
+    ops::{Add, Deref, Neg, Sub},
 };
 
 use libopal::window::Pixel;
@@ -40,15 +40,24 @@ impl DamageRegion {
             self.position.y() + self.rect.height as isize,
         )
     }
+    /// Checks if self overlaps with `rect`.
+    #[inline]
+    pub fn overlaps_with(&self, rect: &TransformRect) -> Option<IntersectionPoint> {
+        self.overlaps_with_within(Point::new(0, 0), rect)
+    }
 
     #[inline]
-    /// Checks if self overlaps with `rect` returning the point which is covered from the rect
-    pub fn overlaps_with(&self, rect: &TransformRect) -> Option<IntersectionPoint> {
-        let d0 = self.position;
+    /// Checks if self overlaps with `rect` returning the point which is covered from the rectangle within off_within from rect.
+    pub fn overlaps_with_within(
+        &self,
+        off_within: Point,
+        rect: &TransformRect,
+    ) -> Option<IntersectionPoint> {
+        let d0 = self.position();
         let d1 = self.max_position();
 
-        let r0 = rect.position();
-        let r1 = rect.max_position();
+        let r0 = rect.position() + off_within;
+        let r1 = rect.max_position() - off_within;
 
         if (d0.x() < r1.x() && d1.x() > r0.x()) && (d0.y() < r1.y() && d1.y() > r0.y()) {
             let i_x0 = d0.x().max(r0.x()) - r0.x();
@@ -188,6 +197,20 @@ impl Add for Point {
     type Output = Point;
     fn add(self, rhs: Self) -> Self::Output {
         Self::new(self.x() + rhs.x(), self.y() + rhs.y())
+    }
+}
+
+impl Neg for Point {
+    type Output = Self;
+    fn neg(self) -> Self::Output {
+        Self::new(-self.x(), -self.y())
+    }
+}
+
+impl Sub for Point {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self::Output {
+        self + -rhs
     }
 }
 
