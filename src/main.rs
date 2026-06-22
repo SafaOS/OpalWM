@@ -1,6 +1,6 @@
 use std::thread;
 
-use opal_abi::log;
+use opal_abi::{elog, log};
 use safa_api::abi::input::KeyCode;
 
 use crate::com::listener;
@@ -44,9 +44,13 @@ fn main_loop() {
         thread::yield_now();
     }
 }
+
 fn main() {
     log!("WM Starting");
+
+    std::panic::set_hook(Box::new(|p| elog!("Panic: {p}")));
     disable_terminal_logging();
+
     framebuffer::clear();
     std::thread::spawn(main_loop);
     listener::listener_thread()
