@@ -159,11 +159,11 @@ impl WindowDecorationsMeta {
             full_bounds,
             border_off,
             border_bounds,
-            12,
+            16,
             12,
             Pixel::BLACK,
             UPoint::new(2, 4),
-            0.4,
+            0.6,
         );
         let draw_x = border_off.x() + BORDER_THICKNESS;
         let draw_y = border_off.y() + BORDER_THICKNESS;
