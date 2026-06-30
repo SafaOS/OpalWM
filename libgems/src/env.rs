@@ -4,12 +4,12 @@ use std::{collections::HashMap, marker::PhantomData};
 
 use crate::theme;
 
-trait AllEnvValues: Sized {
+pub trait GenericEnvValue: Sized {
     fn from_env_value(v: EnvValue) -> Option<Self>;
     fn into_env_value(self) -> EnvValue;
 }
 
-impl AllEnvValues for bool {
+impl GenericEnvValue for bool {
     fn from_env_value(v: EnvValue) -> Option<Self> {
         match v {
             EnvValue::Bool(b) => Some(b),
@@ -21,7 +21,7 @@ impl AllEnvValues for bool {
     }
 }
 
-impl AllEnvValues for super::Color {
+impl GenericEnvValue for super::Color {
     fn from_env_value(v: EnvValue) -> Option<Self> {
         match v {
             EnvValue::Color(c) => Some(c),
@@ -34,7 +34,7 @@ impl AllEnvValues for super::Color {
 }
 
 #[derive(Debug, Clone, Copy)]
-enum EnvValue {
+pub enum EnvValue {
     Color(super::Color),
     Bool(bool),
 }
@@ -48,12 +48,12 @@ pub enum EnvError {
 
 /// Represents a key into an [`AppEnv`].
 #[derive(Debug, Clone, Copy)]
-pub struct EnvKey<Result: AllEnvValues> {
+pub struct EnvKey<Result: GenericEnvValue> {
     key: &'static str,
     holds: PhantomData<Result>,
 }
 
-impl<R: AllEnvValues> EnvKey<R> {
+impl<R: GenericEnvValue> EnvKey<R> {
     pub const fn new(key: &'static str) -> Self {
         Self {
             key,
@@ -62,26 +62,42 @@ impl<R: AllEnvValues> EnvKey<R> {
     }
 }
 
+#[derive(Debug, Clone)]
 /// The theme and UI Environment of the App.
 pub struct AppEnv {
-    inner: HashMap<String, EnvValue>,
+    inner: HashMap<&'static str, EnvValue>,
 }
 
 impl AppEnv {
+    pub fn app_theme() -> Self {
+        let mut this = AppEnv {
+            inner: HashMap::new(),
+        };
+        theme::default_app_theme(&mut this);
+        this
+    }
+
+    pub fn sys_theme() -> Self {
+        let mut this = AppEnv {
+            inner: HashMap::new(),
+        };
+        theme::default_sys_theme(&mut this);
+        this
+    }
     /// Attempts to get the given `key` from the env.
-    pub fn try_get<R: AllEnvValues>(&self, key: EnvKey<R>) -> Result<R, EnvError> {
+    pub fn try_get<R: GenericEnvValue>(&self, key: EnvKey<R>) -> Result<R, EnvError> {
         let env_val = self.inner.get(key.key).ok_or(EnvError::NoValue)?;
         R::from_env_value(*env_val).ok_or(EnvError::UnexpectedValue)
     }
 
     /// Same as [`Self::try_get`] but panics on failure.
-    pub fn get<R: AllEnvValues>(&self, key: EnvKey<R>) -> R {
+    pub fn get<R: GenericEnvValue>(&self, key: EnvKey<R>) -> R {
         self.try_get(key).expect("Failed to reterive Env Key")
     }
 
     /// Sets the given key to the given value.
-    pub fn set_key<R: AllEnvValues>(&mut self, key: EnvKey<R>, value: R) -> &mut Self {
-        self.inner.insert(key.key.into(), value.into_env_value());
+    pub fn set_key<R: GenericEnvValue>(&mut self, key: EnvKey<R>, value: R) -> &mut Self {
+        self.inner.insert(key.key, value.into_env_value());
         self
     }
 }
@@ -92,7 +108,7 @@ impl Default for AppEnv {
             inner: HashMap::new(),
         };
 
-        theme::default_theme(&mut this);
+        theme::default_app_theme(&mut this);
         this
     }
 }

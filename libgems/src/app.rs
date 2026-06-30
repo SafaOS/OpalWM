@@ -1,8 +1,11 @@
-use std::ops::{Deref, DerefMut};
+use std::{
+    ops::{Deref, DerefMut},
+    sync::LazyLock,
+};
 
 use libopal::{DequeuedEvents, defs::WindowID};
 
-use crate::{AppEnv, Window};
+use crate::{AppEnv, Window, WindowDesc, shards::Shard};
 
 /// Describes a global App context
 pub trait AppCtx: 'static {
@@ -11,29 +14,33 @@ pub trait AppCtx: 'static {
 
     fn send_message(&mut self, msg: Self::Message);
     fn state_mut(&mut self) -> &mut Self::State;
-    fn env(&self) -> Option<&AppEnv> {
-        None
-    }
+    fn env(&self) -> &AppEnv;
 }
 
 /// Represents an [`AppCtx`] core wrapper around [`AppState`].
-pub struct Data<State: 'static = (), Message: 'static = ()> {
-    pending_messages: Vec<Message>,
+pub struct Data<S = (), M = ()> {
+    pending_messages: Vec<M>,
     env: AppEnv,
-    state: State,
+    state: S,
 }
 
 impl<State, Message> Data<State, Message> {
     pub fn broadcast_message(&mut self, msg: Message) {
-        self.send_message(msg);
+        self.pending_messages.push(msg);
+    }
+
+    pub fn env(&self) -> &AppEnv {
+        &self.env
     }
 }
+
+static DEFAULT_ENV: LazyLock<AppEnv> = LazyLock::new(|| AppEnv::default());
 
 impl AppCtx for () {
     type State = ();
     type Message = ();
-    fn env(&self) -> Option<&AppEnv> {
-        None
+    fn env(&self) -> &AppEnv {
+        &*DEFAULT_ENV
     }
     fn send_message(&mut self, msg: Self::Message) {
         _ = msg;
@@ -42,14 +49,14 @@ impl AppCtx for () {
         self
     }
 }
-impl<State, Message> AppCtx for Data<State, Message> {
+impl<State: 'static, Message: 'static> AppCtx for Data<State, Message> {
     type State = State;
     type Message = Message;
     fn send_message(&mut self, msg: Message) {
         self.pending_messages.push(msg);
     }
-    fn env(&self) -> Option<&AppEnv> {
-        Some(&self.env)
+    fn env(&self) -> &AppEnv {
+        &self.env
     }
     fn state_mut(&mut self) -> &mut State {
         &mut self.state
@@ -72,7 +79,7 @@ impl<S, O> DerefMut for Data<S, O> {
 /// Describes an app made of multiple [`Window`]s and a state.
 pub struct App<State: 'static = (), Message: 'static = ()> {
     core: Data<State, Message>,
-    windows: Vec<Window<Data<State, Message>>>,
+    windows: Vec<Window<State, Message>>,
 }
 
 impl<State, Message> App<State, Message> {
@@ -87,23 +94,32 @@ impl<State, Message> App<State, Message> {
         }
     }
 
-    pub fn get_window(&mut self, win: WindowID) -> Option<&mut Window<Data<State, Message>>> {
+    pub fn env(&self) -> &AppEnv {
+        self.core.env()
+    }
+
+    pub fn with_env(mut self, env: AppEnv) -> Self {
+        self.core.env = env;
+        self
+    }
+
+    pub fn get_window(&mut self, win: WindowID) -> Option<&mut Window<State, Message>> {
         self.windows.iter_mut().find(|w| w.win_id() == win)
     }
 
-    pub fn remove_window(&mut self, win: WindowID) -> Option<Window<Data<State, Message>>> {
+    pub fn remove_window(&mut self, win: WindowID) -> Option<Window<State, Message>> {
         let index = self.windows.iter().position(|w| w.win_id() == win)?;
         Some(self.windows.remove(index))
     }
 
     /// Inserts a window [`win`] to the given app.
-    pub fn window(mut self, win: Window<Data<State, Message>>) -> Self {
-        self.windows.push(win);
+    pub fn window<R: Shard<State, Message>>(mut self, win: WindowDesc<R>) -> Self {
+        self.windows.push(win.init(&mut self.core));
         self
     }
 
-    pub fn add_window(&mut self, win: Window<Data<State, Message>>) -> &mut Self {
-        self.windows.push(win);
+    pub fn add_window<R: Shard<State, Message>>(&mut self, win: WindowDesc<R>) -> &mut Self {
+        self.windows.push(win.init(&mut self.core));
         self
     }
 
@@ -116,7 +132,7 @@ impl<State, Message> App<State, Message> {
     pub fn redraw_needed(&mut self) {
         for win in &mut self.windows {
             if win.dirty() {
-                win.redraw();
+                win.redraw(&self.core);
             }
         }
     }
@@ -124,7 +140,7 @@ impl<State, Message> App<State, Message> {
     /// Redraws all windows.
     pub fn redraw_all(&mut self) {
         for win in &mut self.windows {
-            win.redraw();
+            win.redraw(&self.core);
         }
     }
 

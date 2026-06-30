@@ -71,15 +71,27 @@ impl WindowDecorationsMeta {
 
         // initial dst x
         let dst_x = src_x + x_diff;
+
+        // Optimization helps with.
+        assert!(src_x + target_width <= src_width);
+        assert!(src_y + target_height <= bounds.height);
+        assert!(dst_x + target_width <= dst_width);
+        assert!(src_y + y_diff + target_height <= dst_height);
+
         for sy in src_y..(src_y + target_height) {
             // initial dst y
             let dst_y = sy + y_diff;
-            // rounded up src x, may change
-            let mut r_src_x = src_x;
-            // rounded up dst x, may change
-            let mut r_dst_x = dst_x;
-            // rounded up dst width, may change
-            let mut r_target_width = target_width;
+
+            let src_row = &src[sy * src_width..(sy * src_width) + src_width];
+            let dst_row = &mut dst[dst_y * dst_width..(dst_y * dst_width) + dst_width];
+            let src;
+            let dst;
+            // // rounded up src x, may change
+            // let mut r_src_x = src_x;
+            // // rounded up dst x, may change
+            // let mut r_dst_x = dst_x;
+            // // rounded up dst width, may change
+            // let mut r_target_width = target_width;
 
             // Skip corner mask pixels
             if let Some(border) = border
@@ -104,20 +116,48 @@ impl WindowDecorationsMeta {
                 {
                     // skip is relative to border, translate to src
                     let src_skip = skip - (x_diff - b_off_x);
-                    r_src_x = r_src_x.max(src_skip);
+
+                    let r_src_x = src_x.max(src_skip);
                     // Width is src specific, and we want to cut both ends of skip from it.
-                    r_target_width = target_width.min(src_width - r_src_x - src_skip);
+                    let r_target_width = target_width.min(src_width - r_src_x - src_skip);
                     // dst is just the offset of the border + pixels to skip
-                    r_dst_x = r_dst_x.max(b_off_x + skip);
+                    let r_dst_x = dst_x.max(b_off_x + skip);
+
+                    // TODO: Figure out how to blend corners from the inside.
+                    // if src_x < src_skip {
+                    //     let s_unblended = &src_row[..src_skip];
+                    //     let d_unblended = &mut dst_row[b_off_x..b_off_x + src_skip];
+
+                    //     Pixel::blend_bottom(d_unblended, s_unblended);
+                    // }
+
+                    // if src_x + target_width > target_width - src_skip {
+                    //     let e_s_unblended = &src_row[src_row.len() - src_skip..];
+                    //     let dst_len = dst_row.len();
+
+                    //     let e_d_unblended =
+                    //         &mut dst_row[dst_len - src_skip - b_off_x..dst_len - b_off_x];
+                    //     Pixel::blend_bottom(e_d_unblended, e_s_unblended);
+                    // }
+
+                    src = &src_row[r_src_x..r_src_x + r_target_width];
+                    dst = &mut dst_row[r_dst_x..r_dst_x + r_target_width];
+                } else {
+                    src = &src_row[src_x..src_x + target_width];
+                    dst = &mut dst_row[dst_x..dst_x + target_width];
                 }
+            } else {
+                src = &src_row[src_x..src_x + target_width];
+                dst = &mut dst_row[dst_x..dst_x + target_width];
             }
 
-            let src_start = (sy * src_width) + r_src_x;
-            let src_end = src_start + r_target_width;
+            // let src_start = (sy * src_width) + r_src_x;
+            // let src_end = src_start + r_target_width;
 
-            let dst_start = (dst_y * dst_width) + r_dst_x;
-            let dst_end = dst_start + r_target_width;
-            dst[dst_start..dst_end].copy_from_slice(&src[src_start..src_end]);
+            // let dst_start = (dst_y * dst_width) + r_dst_x;
+            // let dst_end = dst_start + r_target_width;
+            // dst[dst_start..dst_end].copy_from_slice(&src[src_start..src_end]);
+            dst.copy_from_slice(src);
         }
         UPoint::new(src_x + x_diff, src_y + y_diff)
     }

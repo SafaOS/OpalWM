@@ -1,5 +1,7 @@
 //! Defines some framebuffer and display-related constants and structures.
 
+use uopal_desktop::themes::Color;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 /// Represents a single pixel
 #[repr(C)]
@@ -85,12 +87,63 @@ impl Pixel {
     }
 
     #[inline]
-    pub fn blend_4(top: &[Pixel; 4], bottom: &mut [Pixel; 4]) {
-        const ALPHAS_SWIZZLE: wide::u8x16 =
-            wide::u8x16::new([3, 3, 3, 3, 7, 7, 7, 7, 11, 11, 11, 11, 15, 15, 15, 15]);
+    /// Blends the top pixels into the bottom.
+    ///
+    /// Panicks if top.len() != bottom.len()
+    pub fn blend_top(top: &[Pixel], bottom: &mut [Pixel]) {
+        assert_eq!(top.len(), bottom.len());
 
+        let (t_f, t_rest) = top.as_chunks::<4>();
+        let (b_f, b_rest) = bottom.as_chunks_mut::<4>();
+        for ch_i in 0..t_f.len() {
+            Self::blend_4_top(&t_f[ch_i], &mut b_f[ch_i]);
+        }
+
+        for i in 0..t_rest.len() {
+            b_rest[i] = t_rest[i].blend(&b_rest[i]);
+        }
+    }
+
+    #[inline]
+    /// Blends the bottom pixels into the top.
+    ///
+    /// Panicks if top.len() != bottom.len()
+    pub fn blend_bottom(top: &mut [Pixel], bottom: &[Pixel]) {
+        assert_eq!(top.len(), bottom.len());
+
+        let (t_f, t_rest) = top.as_chunks_mut::<4>();
+        let (b_f, b_rest) = bottom.as_chunks::<4>();
+        for ch_i in 0..t_f.len() {
+            Self::blend_4_bottom(&mut t_f[ch_i], &b_f[ch_i]);
+        }
+
+        for i in 0..t_rest.len() {
+            t_rest[i] = b_rest[i].blend(&t_rest[i]);
+        }
+    }
+
+    #[inline(always)]
+    pub fn blend_4_top(top: &[Pixel; 4], bottom: &mut [Pixel; 4]) {
         let u8_top_bytes: &[u8; 16] = unsafe { core::mem::transmute(top) };
         let u8_bottom_bytes: &mut [u8; 16] = unsafe { core::mem::transmute(bottom) };
+        *u8_bottom_bytes = Self::blend_4_bytes(u8_top_bytes, u8_bottom_bytes)
+    }
+
+    #[inline(always)]
+    pub fn blend_4_bottom(top: &mut [Pixel; 4], bottom: &[Pixel; 4]) {
+        let u8_top_bytes: &mut [u8; 16] = unsafe { core::mem::transmute(top) };
+        let u8_bottom_bytes: &[u8; 16] = unsafe { core::mem::transmute(bottom) };
+        *u8_top_bytes = Self::blend_4_bytes(u8_top_bytes, u8_bottom_bytes)
+    }
+
+    #[inline(always)]
+    fn blend_4_bytes(
+        u8_top_bytes: &[u8; size_of::<Pixel>() * 4],
+        u8_bottom_bytes: &[u8; size_of::<Pixel>() * 4],
+    ) -> [u8; size_of::<Pixel>() * 4] {
+        // Byte offsets
+        const ALPHAS_SWIZZLE: wide::u8x16 =
+            wide::u8x16::new([3, 3, 3, 3, 7, 7, 7, 7, 11, 11, 11, 11, 15, 15, 15, 15]);
 
         let u8_top_cells = wide::u8x16::new(*u8_top_bytes);
         let u8_bottom_cells = wide::u8x16::new(*u8_bottom_bytes);
@@ -118,8 +171,10 @@ impl Pixel {
 
         let res: wide::u8x16 = u8_top_cells + bott;
 
-        *u8_bottom_bytes = res.to_array();
+        res.to_array()
     }
+
+    #[inline(always)]
     /// Alpha blends a pixel with another
     pub const fn blend(&self, bottom: &Self) -> Self {
         if self.alpha == 0 {
@@ -156,6 +211,17 @@ impl Pixel {
             green: green as u8,
             blue: blue as u8,
             alpha: alpha as u8,
+        }
+    }
+}
+
+impl From<Color> for Pixel {
+    fn from(value: Color) -> Self {
+        Self {
+            red: value.r,
+            green: value.g,
+            blue: value.b,
+            alpha: value.a,
         }
     }
 }

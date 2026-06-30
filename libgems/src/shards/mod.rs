@@ -19,7 +19,7 @@ pub use render_ctx::*;
 pub use stack::*;
 
 use crate::{
-    AppCtx, ShardEvent,
+    Data, ShardEvent,
     render::{BoundingConstraints, BoundingRect, CanvasCache, CanvasContext, NoopCanvas, Point},
     shards::lifecycle::LifeCycle,
 };
@@ -65,12 +65,13 @@ impl<'f> LayoutCtx<'f> {
 }
 
 /// A shard is a widget.
-pub trait Shard<Context: AppCtx> {
+pub trait Shard<S = (), M = ()> {
     fn dirty(&self) -> bool;
     /// [`LifeCycle`] report.
-    fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle) {
+    fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, data: &Data<S, M>) {
         _ = ctx;
         _ = event;
+        _ = data;
     }
     /// Lays out [`Self`] according to ctxt, returning the layout.
     fn layout(&mut self, ctx: &mut LayoutCtx) -> ShardLayout;
@@ -78,14 +79,14 @@ pub trait Shard<Context: AppCtx> {
     ///
     /// Typically damages the whole width*height area within in that case return None,
     /// however if the damage is at a specific subpoint from the hitbox return Some((point from self, range bounds)).
-    fn render(&mut self, ctx: &mut RenderCtx) -> Option<(Point, BoundingRect)>;
+    fn render(&mut self, ctx: &mut RenderCtx, data: &Data<S, M>) -> Option<(Point, BoundingRect)>;
     /// Executed on a new event, regardless if the event is relevant to the shard.
     ///
     /// Is followed by [`Shard::on_update`] lifecycle.
-    fn on_event(&mut self, event_ctx: &mut EventCtx, event: &ShardEvent, app_ctx: &mut Context) {
+    fn on_event(&mut self, event_ctx: &mut EventCtx, event: &ShardEvent, data: &mut Data<S, M>) {
         _ = event_ctx;
         _ = event;
-        _ = app_ctx;
+        _ = data;
     }
     /// Executed on a new message.
     ///
@@ -94,8 +95,8 @@ pub trait Shard<Context: AppCtx> {
         &mut self,
         layout: &ShardLayout,
         pos: Point,
-        context: &mut Context,
-        message: &Context::Message,
+        context: &mut Data<S, M>,
+        message: &M,
     ) {
         _ = pos;
         _ = context;
@@ -103,21 +104,22 @@ pub trait Shard<Context: AppCtx> {
         _ = layout;
     }
     /// Executed whenever `context` is potentially muttated.
-    fn on_ctx_update(&mut self, context: &Context) {
+    fn on_ctx_update(&mut self, context: &Data<S, M>) {
         _ = context;
     }
 }
 
 /// Does Absolutely Nothing
-impl<Ctx: AppCtx> Shard<Ctx> for () {
+impl<S, M> Shard<S, M> for () {
     fn dirty(&self) -> bool {
         false
     }
     fn layout(&mut self, _: &mut LayoutCtx) -> ShardLayout {
         ShardLayout::default()
     }
-    fn render(&mut self, ctx: &mut RenderCtx) -> Option<(Point, BoundingRect)> {
+    fn render(&mut self, ctx: &mut RenderCtx, data: &Data<S, M>) -> Option<(Point, BoundingRect)> {
         _ = ctx;
+        _ = data;
         None
     }
 }
@@ -185,16 +187,16 @@ impl Default for ShardState {
 }
 
 /// A node in the shard hierarchy.
-pub(crate) struct ShardNode<Ctx: AppCtx> {
+pub(crate) struct ShardNode<State, Message> {
     state: ShardState,
     /// The origin point of the shard.
     origin: Point,
     /// The last cached layout of the shard.
     layout: Option<ShardLayout>,
-    pub(crate) shard: Box<CachedShard<dyn Shard<Ctx>>>,
+    pub(crate) shard: Box<CachedShard<dyn Shard<State, Message>>>,
 }
 
-impl<Ctx: AppCtx> ShardNode<Ctx> {
+impl<State, Message> ShardNode<State, Message> {
     pub fn layout_ref(&self) -> Option<&ShardLayout> {
         self.layout.as_ref()
     }
@@ -234,10 +236,10 @@ impl<Ctx: AppCtx> ShardNode<Ctx> {
     fn fix_hot<'a>(
         layout: &'a ShardLayout,
         state: &'a mut ShardState,
-        shard: &mut CachedShard<dyn Shard<Ctx>>,
+        shard: &mut CachedShard<dyn Shard<State, Message>>,
         cursor_at: Point,
         origin: Point,
-        app_ctx: &mut Ctx,
+        data: &mut Data<State, Message>,
     ) -> Option<EventCtx<'a>> {
         let is_hot = layout.bounds.contains_point(origin, cursor_at);
 
@@ -247,22 +249,23 @@ impl<Ctx: AppCtx> ShardNode<Ctx> {
             shard.lifecycle(
                 &mut LifeCycleCtx::new(state),
                 &LifeCycle::HotChanged(is_hot),
+                data,
             );
         }
 
         let mut ctx = EventCtx::new(origin, Some(cursor_at), state, layout);
         if is_hot && !was_hot {
-            shard.on_event(&mut ctx, &crate::ShardEvent::MouseEnter, app_ctx);
+            shard.on_event(&mut ctx, &crate::ShardEvent::MouseEnter, data);
         } else if was_hot {
-            shard.on_event(&mut ctx, &crate::ShardEvent::MouseLeave, app_ctx);
+            shard.on_event(&mut ctx, &crate::ShardEvent::MouseLeave, data);
         }
 
         is_hot.then_some(ctx)
     }
 
-    pub fn route_lifecycle(&mut self, cycle: &LifeCycle) {
+    pub fn route_lifecycle(&mut self, cycle: &LifeCycle, data: &Data<State, Message>) {
         self.shard
-            .lifecycle(&mut LifeCycleCtx::new(&mut self.state), cycle);
+            .lifecycle(&mut LifeCycleCtx::new(&mut self.state), cycle, data);
     }
 
     /// Routes an event to the shard, updating state as necessary.
@@ -271,7 +274,7 @@ impl<Ctx: AppCtx> ShardNode<Ctx> {
         anchor_by: Point,
         event_origin: Option<Point>,
         event: &ShardEvent,
-        app_ctx: &mut Ctx,
+        data: &mut Data<State, Message>,
     ) {
         if let Some(ref layout) = self.layout {
             let is_mouse_event = event.is_mouse_event();
@@ -286,7 +289,7 @@ impl<Ctx: AppCtx> ShardNode<Ctx> {
                         &mut *self.shard,
                         event_origin,
                         origin,
-                        app_ctx,
+                        data,
                     );
                 } else {
                     let is_within = layout.bounds.contains_point(origin, event_origin);
@@ -299,7 +302,7 @@ impl<Ctx: AppCtx> ShardNode<Ctx> {
             }
 
             if let Some(mut routed_ctx) = routed_event {
-                self.shard.on_event(&mut routed_ctx, event, app_ctx);
+                self.shard.on_event(&mut routed_ctx, event, data);
             }
         }
     }
@@ -307,18 +310,23 @@ impl<Ctx: AppCtx> ShardNode<Ctx> {
     /// Routes a message to the shard.
     ///
     /// Requires [`Self::layout`] to be executed at least once.
-    pub fn route_message(&mut self, anchor_by: Point, app_ctx: &mut Ctx, message: &Ctx::Message) {
+    pub fn route_message(
+        &mut self,
+        anchor_by: Point,
+        data: &mut Data<State, Message>,
+        message: &Message,
+    ) {
         let layout = self
             .layout
             .as_ref()
             .expect("Route message called on non-layedout shard");
         let origin = self.origin + anchor_by;
 
-        self.shard.on_message(layout, origin, app_ctx, message);
+        self.shard.on_message(layout, origin, data, message);
     }
 
-    pub fn on_ctx_update(&mut self, app_ctx: &Ctx) {
-        self.shard.on_ctx_update(app_ctx);
+    pub fn on_ctx_update(&mut self, data: &Data<State, Message>) {
+        self.shard.on_ctx_update(data);
     }
 
     pub fn on_relayout(&mut self, parent_is_hot: bool, anchor_by: Point, cursor_at: Option<Point>) {
@@ -338,7 +346,7 @@ impl<Ctx: AppCtx> ShardNode<Ctx> {
         self.state.set_active(false);
     }
 
-    pub(crate) fn new<S: Shard<Ctx> + 'static>(shard: S) -> Self {
+    pub(crate) fn new<S: Shard<State, Message> + 'static>(shard: S) -> Self {
         Self {
             shard: Box::new(shard.cached()),
             origin: Point::default(),
@@ -351,6 +359,7 @@ impl<Ctx: AppCtx> ShardNode<Ctx> {
     pub(crate) fn render_as_root(
         &mut self,
         cache: &mut CanvasCache,
+        data: &Data<State, Message>,
     ) -> Option<(Point, BoundingRect)> {
         let mut noop = NoopCanvas;
         let mut canvas_ctx = CanvasContext::new(cache, &mut noop);
@@ -363,7 +372,7 @@ impl<Ctx: AppCtx> ShardNode<Ctx> {
                 .expect("Attempt to render node with no layout"),
         );
 
-        let results = self.shard.render(&mut ctx);
+        let results = self.shard.render(&mut ctx, data);
         self.state.state_changed = false;
         results
     }
@@ -374,6 +383,7 @@ impl<Ctx: AppCtx> ShardNode<Ctx> {
         parent_ctx: &mut RenderCtx,
         layout_changed: bool,
         cursor_at: Option<Point>,
+        data: &Data<State, Message>,
     ) -> Option<(Point, BoundingRect)> {
         let parent_origin = parent_ctx.origin();
         if layout_changed {
@@ -387,7 +397,7 @@ impl<Ctx: AppCtx> ShardNode<Ctx> {
         let bounds = layout.bounds;
 
         let r = parent_ctx.nest_ctx(self.origin, bounds, |ctx| {
-            ctx.with_state(&self.state, layout, |ctx| self.shard.render(ctx))
+            ctx.with_state(&self.state, layout, |ctx| self.shard.render(ctx, data))
         });
         self.state.state_changed = false;
         r

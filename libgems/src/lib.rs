@@ -5,7 +5,7 @@ pub use shards::event::*;
 
 mod app;
 mod env;
-mod theme;
+pub mod theme;
 mod window;
 pub use app::*;
 pub use cosmic_text;

@@ -154,27 +154,9 @@ impl Framebuffer {
                 return;
             }
 
-            let mut target_pixels = &mut self.pixels[target_row_index..target_row_index + d_width];
-            let mut src_pixels = &pixels[src_row_index..src_row_index + d_width];
-
-            // Alpha blend 4 pixels at a time
-            while target_pixels.len() >= 4 {
-                let bottom: &mut [Pixel; 4] =
-                    unsafe { core::mem::transmute(&mut target_pixels[0]) };
-                let top: &[Pixel; 4] = unsafe { core::mem::transmute(&src_pixels[0]) };
-
-                Pixel::blend_4(top, bottom);
-
-                target_pixels = &mut target_pixels[4..];
-                src_pixels = &src_pixels[4..];
-            }
-
-            // Alpha blend remaining pixels (if the len isn't aligned to 4)
-            for i in 0..target_pixels.len() {
-                let bottom = &mut target_pixels[i];
-                let top = &src_pixels[i];
-                *bottom = top.blend(bottom);
-            }
+            let target_pixels = &mut self.pixels[target_row_index..target_row_index + d_width];
+            let src_pixels = &pixels[src_row_index..src_row_index + d_width];
+            Pixel::blend_top(src_pixels, target_pixels);
         }
     }
 
@@ -222,27 +204,10 @@ impl Framebuffer {
             let end_target_row_index = (target_row_index + width).min(self.pixels.len());
             let end_src_row_index = (src_row_index + width).min(pixels.len());
 
-            let mut target_pixels = &mut self.pixels[target_row_index..end_target_row_index];
-            let mut src_pixels = &pixels[src_row_index..end_src_row_index];
+            let target_pixels = &mut self.pixels[target_row_index..end_target_row_index];
+            let src_pixels = &pixels[src_row_index..end_src_row_index];
 
-            // Alpha blend 4 pixels at a time
-            while target_pixels.len() >= 4 {
-                let bottom: &mut [Pixel; 4] =
-                    unsafe { core::mem::transmute(&mut target_pixels[0]) };
-                let top: &[Pixel; 4] = unsafe { core::mem::transmute(&src_pixels[0]) };
-
-                Pixel::blend_4(top, bottom);
-
-                target_pixels = &mut target_pixels[4..];
-                src_pixels = &src_pixels[4..];
-            }
-
-            // Alpha blend remaining pixels (if the len isn't aligned to 4)
-            for i in 0..target_pixels.len() {
-                let bottom = &mut target_pixels[i];
-                let top = &src_pixels[i];
-                *bottom = top.blend(bottom);
-            }
+            Pixel::blend_top(src_pixels, target_pixels);
         }
     }
 

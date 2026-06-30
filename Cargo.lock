@@ -372,6 +372,7 @@ dependencies = [
  "cosmic-text",
  "libopal",
  "tiny-skia",
+ "uopal-desktop",
 ]
 
 [[package]]
@@ -562,6 +563,7 @@ version = "0.1.0"
 dependencies = [
  "bitflags",
  "libserver",
+ "uopal-desktop",
  "wide",
 ]
 

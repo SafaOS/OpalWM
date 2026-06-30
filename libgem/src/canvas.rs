@@ -41,7 +41,7 @@ pub trait DrawingCanvas {
                     row.next().unwrap().into(),
                 ];
 
-                Pixel::blend_4(&top, unsafe { core::mem::transmute(&mut dst_row[i]) });
+                Pixel::blend_4_top(&top, unsafe { core::mem::transmute(&mut dst_row[i]) });
                 i += 4;
             } else {
                 while let Some(item) = row.next() {

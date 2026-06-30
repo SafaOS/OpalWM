@@ -141,9 +141,11 @@ impl Color {
 #[serde(rename_all = "camelCase")]
 pub struct RawTheme {
     background_path: Option<PathBuf>,
+    #[serde(rename = "backgroundColor")]
     background_color: Option<Color>,
     #[serde(rename = "backgroundColor_1")]
     background_color_1: Option<Color>,
+    #[serde(rename = "accentColor")]
     accent_color: Option<Color>,
     #[serde(rename = "accentColor_1")]
     accent_color_1: Option<Color>,
@@ -238,11 +240,12 @@ pub struct ThemesDatabase {
 impl ThemesDatabase {
     /// Returns a placeholder theme database.
     pub fn placeholder() -> Self {
-        let palceholder: Arc<str> = Arc::from("placeholder-theme");
+        println!("Placeholder theme requested");
+        let placeholder: Arc<str> = Arc::from("placeholder-theme");
         Self {
-            loaded_themes: HashMap::from([(palceholder.clone(), RawTheme::default())]),
-            current_apps: palceholder.clone(),
-            current_system: palceholder,
+            loaded_themes: HashMap::from([(placeholder.clone(), RawTheme::default())]),
+            current_apps: placeholder.clone(),
+            current_system: placeholder,
             overrides: RawTheme::default(),
         }
     }
@@ -266,16 +269,17 @@ impl ThemesDatabase {
         let mut loaded_themes: HashMap<Arc<str>, RawTheme> = HashMap::new();
 
         for path in themes_paths {
-            let Some(name) = path.file_name().and_then(|f| f.to_str()) else {
+            let Some(f_name) = path.file_name().and_then(|f| f.to_str()) else {
                 continue;
             };
 
-            if !name.ends_with(".json") || name == "theme.json" {
+            if !f_name.ends_with(".json") || f_name == "theme.json" {
                 continue;
             }
 
             let file = File::open(&path)?;
             let raw_theme: RawTheme = serde_json::from_reader(file)?;
+            let name = f_name.trim_end_matches(".json");
             let arc_name: Arc<str> = Arc::from(name);
 
             if raw_database
@@ -304,6 +308,8 @@ impl ThemesDatabase {
 
         let arc_apps_name = arc_apps_name.unwrap_or_else(|| first.clone());
         let arc_sys_name = arc_sys_name.unwrap_or(first);
+        println!("uopal: apps theme name: {arc_apps_name}");
+        println!("uopal: sys theme name: {arc_sys_name}");
         Ok(Self {
             loaded_themes,
             current_apps: arc_apps_name,

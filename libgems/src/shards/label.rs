@@ -1,23 +1,23 @@
 use std::marker::PhantomData;
 
-use crate::{BoundingRect, Color, Point};
+use crate::{BoundingRect, Data, Point, theme};
 use cosmic_text::{Attrs, Buffer, Metrics, Wrap};
 
-use crate::{AppCtx, render::PaintBrush, shards::Shard};
+use crate::{render::PaintBrush, shards::Shard};
 
 #[derive(Debug, Clone)]
-pub struct Label<Ctx: AppCtx> {
+pub struct Label<S, M = ()> {
     buffer: Buffer,
     wrap: Wrap,
     text: String,
     text_changed: bool,
-    brush: PaintBrush,
+    paint: Option<PaintBrush>,
     attrs: Attrs<'static>,
     center: bool,
-    _ctx: PhantomData<Ctx>,
+    _ctx: PhantomData<(S, M)>,
 }
 
-impl<Ctx: AppCtx> Label<Ctx> {
+impl<S, M> Label<S, M> {
     #[inline]
     pub fn from_str(data: impl Into<String>) -> Self {
         Self {
@@ -25,7 +25,7 @@ impl<Ctx: AppCtx> Label<Ctx> {
             buffer: Buffer::new_empty(Metrics::relative(12., 1.)),
             wrap: Wrap::WordOrGlyph,
             text_changed: true,
-            brush: PaintBrush::Color(Color::BLACK), /* todo environment themeing */
+            paint: None,
             attrs: Attrs::new(),
             center: false,
             _ctx: PhantomData,
@@ -43,8 +43,9 @@ impl<Ctx: AppCtx> Label<Ctx> {
     }
 
     #[inline]
-    pub fn with_color(mut self, color: Color) -> Self {
-        self.brush = PaintBrush::Color(color);
+    /// Sets the paint brush for the button.
+    pub fn with_paint(mut self, paint: impl Into<PaintBrush>) -> Self {
+        self.paint = Some(paint.into());
         self
     }
 
@@ -87,11 +88,22 @@ impl<Ctx: AppCtx> Label<Ctx> {
     }
 }
 
-impl<Ctx: AppCtx> Shard<Ctx> for Label<Ctx> {
+impl<S, M> Shard<S, M> for Label<S, M> {
     fn dirty(&self) -> bool {
         self.text_changed || self.buffer.redraw()
     }
 
+    fn lifecycle(
+        &mut self,
+        _: &mut super::LifeCycleCtx,
+        event: &super::lifecycle::LifeCycle,
+        _: &Data<S, M>,
+    ) {
+        match event {
+            super::lifecycle::LifeCycle::Init { .. } => {}
+            _ => {}
+        }
+    }
     fn layout(&mut self, ctx: &mut super::LayoutCtx) -> super::ShardLayout {
         let max_bounds = ctx.max_box();
         let width = max_bounds.width();
@@ -127,6 +139,7 @@ impl<Ctx: AppCtx> Shard<Ctx> for Label<Ctx> {
     fn render(
         &mut self,
         ctx: &mut super::RenderCtx,
+        data: &Data<S, M>,
     ) -> Option<(crate::Point, crate::BoundingRect)> {
         let bounds = ctx.layout().bounds;
 
@@ -140,8 +153,13 @@ impl<Ctx: AppCtx> Shard<Ctx> for Label<Ctx> {
             start = crate::Point::new((r_w - b_w) / 2., (r_h - b_h) / 2.);
         }
 
+        let paint = match self.paint {
+            None => &data.env().get(theme::DEFAULT_TEXT_COLOR).into(),
+            Some(ref p) => p,
+        };
+
         ctx.nest_ctx(start, BoundingRect::new(b_w, b_h), |ctx| {
-            ctx.fill_text(&self.brush, &self.buffer);
+            ctx.fill_text(paint, &self.buffer);
         });
         self.buffer.set_redraw(false);
         None

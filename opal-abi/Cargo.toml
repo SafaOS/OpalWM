@@ -7,3 +7,4 @@ edition = "2024"
 bitflags = "2.9.2"
 wide = "0.7.33"
 libserver = { path = "../libserver" }
+uopal-desktop = { path = "../uopal-desktop" }

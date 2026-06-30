@@ -6,10 +6,58 @@ use libopal::{
 };
 
 use crate::{
-    AppCtx, EventCtx, Padding,
+    Data, EventCtx, Padding,
     render::{BoundingConstraints, BoundingRect, CanvasCache, PaintBrush, Point},
     shards::{Button, Label, LayoutCtx, Shard, ShardNode, ShardsExt, Stack, lifecycle::LifeCycle},
+    theme,
 };
+
+#[derive(Debug, Clone)]
+pub struct WindowDesc<'a, Root: 'static> {
+    config: WindowBuilder<'a>,
+    root: Root,
+}
+
+impl<'a, Root> WindowDesc<'a, Root> {
+    pub(crate) fn init<State, Message>(
+        self,
+        app: &mut Data<State, Message>,
+    ) -> Window<State, Message>
+    where
+        Root: Shard<State, Message>,
+    {
+        let config = self.config;
+
+        let mut height = config.height;
+        if !config.title.is_empty() {
+            height += TITLE_BAR_HEIGHT;
+        }
+
+        Window::new_with_root(
+            config.title,
+            libopal::window::Window::create(
+                config.title,
+                WindowFlags::GLOBAL,
+                config.width,
+                height,
+                None,
+                None,
+            ),
+            config
+                .bg
+                .or_else(|| {
+                    app.env()
+                        .try_get(theme::BACKGROUND_COLOR)
+                        .ok()
+                        .map(|c| c.into())
+                })
+                .unwrap_or(PaintBrush::Color(super::Color::WHITE)),
+            self.root,
+            config.use_all_space,
+            app,
+        )
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct WindowBuilder<'a> {
@@ -18,7 +66,7 @@ pub struct WindowBuilder<'a> {
     x: Option<i32>,
     y: Option<i32>,
     use_all_space: bool,
-    bg: PaintBrush,
+    bg: Option<PaintBrush>,
     title: &'a str,
 }
 
@@ -32,7 +80,7 @@ impl<'a> WindowBuilder<'a> {
             x: None,
             y: None,
             use_all_space: true,
-            bg: PaintBrush::Color(super::Color::WHITE),
+            bg: None,
             title: "",
         }
     }
@@ -52,7 +100,7 @@ impl<'a> WindowBuilder<'a> {
 
     #[inline]
     pub fn background(mut self, background: impl Into<PaintBrush>) -> Self {
-        self.bg = background.into();
+        self.bg = Some(background.into());
         self
     }
 
@@ -67,49 +115,32 @@ impl<'a> WindowBuilder<'a> {
     }
 
     /// Builds the window given a root [`Shard`].
-    pub fn build<Root, Ctx: AppCtx>(self, root: Root) -> Window<Ctx>
+    pub fn build<State: 'static, Message: 'static, Root>(self, root: Root) -> WindowDesc<'a, Root>
     where
-        Root: Shard<Ctx> + 'static,
+        Root: Shard<State, Message> + 'static,
     {
-        let mut height = self.height;
-        if !self.title.is_empty() {
-            height += TITLE_BAR_HEIGHT;
-        }
-
-        Window::new_with_root(
-            self.title,
-            libopal::window::Window::create(
-                self.title,
-                WindowFlags::GLOBAL,
-                self.width,
-                height,
-                None,
-                None,
-            ),
-            self.bg,
-            root,
-            self.use_all_space,
-        )
+        WindowDesc { config: self, root }
     }
 }
 
-pub struct Window<Ctx: AppCtx> {
-    root: ShardNode<Ctx>,
-    // root_layout: Option<ShardLayout>,
-    // root_canvas: TinySkiaCanvas,
+pub struct Window<State: 'static = (), Message: 'static = ()> {
+    root: ShardNode<State, Message>,
     cache: CanvasCache,
     inner: libopal::window::Window,
     mouse_position: Option<Point>,
     mouse_button_state: HeldMouseButtons,
 }
 
-impl<Ctx: AppCtx> Window<Ctx> {
-    pub fn set_title(&mut self, title: impl AsRef<str>) {
-        self.root.route_lifecycle(&LifeCycle::WindowMetaChanged {
-            title: title.as_ref(),
-        });
+impl<State, Message> Window<State, Message> {
+    pub fn set_title(&mut self, title: impl AsRef<str>, data: &Data<State, Message>) {
+        self.root.route_lifecycle(
+            &LifeCycle::WindowMetaChanged {
+                title: title.as_ref(),
+            },
+            data,
+        );
 
-        self.try_redraw();
+        self.try_redraw(data);
     }
 
     pub const fn inner_mut(&mut self) -> &mut libopal::window::Window {
@@ -155,12 +186,13 @@ impl<Ctx: AppCtx> Window<Ctx> {
         self.inner.id()
     }
 
-    fn new_with_root<Root: Shard<Ctx> + 'static>(
+    fn new_with_root<Root: Shard<State, Message> + 'static>(
         title: &str,
         inner: libopal::window::Window,
         bg: PaintBrush,
         root: Root,
         fill_with_root: bool,
+        data: &mut Data<State, Message>,
     ) -> Self {
         let used_root;
         if title.is_empty() {
@@ -182,10 +214,10 @@ impl<Ctx: AppCtx> Window<Ctx> {
             let btn_flex = (3. * btn_width) / win_width;
             let spacer2_flex = 1.0 - btn_flex;
 
-            let mut it = Stack::<Ctx>::row()
+            let mut it = Stack::<State, Message>::row()
                 .with_padding(Padding::none())
                 .with(
-                    Stack::<Ctx>::column()
+                    Stack::<State, Message>::column()
                         .with_padding(Padding::none())
                         .with_spacer(1.)
                         .with_flex(
@@ -196,7 +228,7 @@ impl<Ctx: AppCtx> Window<Ctx> {
                                     LifeCycle::WindowMetaChanged { title, .. } => {
                                         this.set_text(title);
                                     }
-                                    LifeCycle::Init { window_title } => {
+                                    LifeCycle::Init { window_title, .. } => {
                                         this.set_text(window_title);
                                     }
                                     _ => {}
@@ -211,7 +243,7 @@ impl<Ctx: AppCtx> Window<Ctx> {
                             btn_flex,
                         )
                         .align(AxisAlign::Center)
-                        .background(Color::rgb(0xFD, 0xB0, 0xC0))
+                        .background(data.env().get(theme::ACCENT_COLOR))
                         .fix_height(title_height)
                         .fix_width(win_width),
                 )
@@ -229,10 +261,12 @@ impl<Ctx: AppCtx> Window<Ctx> {
             mouse_button_state: HeldMouseButtons::empty(),
             inner,
         };
-        this.root
-            .route_lifecycle(&crate::shards::lifecycle::LifeCycle::Init {
+        this.root.route_lifecycle(
+            &crate::shards::lifecycle::LifeCycle::Init {
                 window_title: title,
-            });
+            },
+            data,
+        );
         this
     }
 
@@ -306,7 +340,7 @@ impl<Ctx: AppCtx> Window<Ctx> {
     }
 
     /// Broadcast's a message to the window's elements.
-    pub fn broadcast_message(&mut self, state: &mut Ctx, msg: &Ctx::Message) {
+    pub fn broadcast_message(&mut self, state: &mut Data<State, Message>, msg: &Message) {
         let constraints = self.constraints();
         self.root.layout_if_none(&mut LayoutCtx {
             font_system: self.cache.font_system(),
@@ -315,7 +349,7 @@ impl<Ctx: AppCtx> Window<Ctx> {
         self.root.route_message(Point::default(), state, msg);
     }
 
-    pub fn update_ctx(&mut self, app_state: &Ctx) {
+    pub fn update_ctx(&mut self, app_state: &Data<State, Message>) {
         let constraints = self.constraints();
         self.root.layout_if_none(&mut LayoutCtx {
             font_system: self.cache.font_system(),
@@ -325,7 +359,7 @@ impl<Ctx: AppCtx> Window<Ctx> {
     }
 
     /// Broadcast's an event to the window's elements.
-    pub fn broadcast_event(&mut self, app_state: &mut Ctx, event: WindowEvent) {
+    pub fn broadcast_event(&mut self, app_state: &mut Data<State, Message>, event: WindowEvent) {
         let constraints = self.constraints();
         self.root.layout_if_none(&mut LayoutCtx {
             font_system: self.cache.font_system(),
@@ -350,14 +384,14 @@ impl<Ctx: AppCtx> Window<Ctx> {
     }
 
     /// Re-renders the window even if it isn't dirty, may be costy.
-    pub fn redraw(&mut self) {
+    pub fn redraw(&mut self, data: &Data<State, Message>) {
         let constraints = self.constraints();
         self.root.layout(&mut LayoutCtx {
             font_system: self.cache.font_system(),
             constraints,
         });
 
-        match self.root.render_as_root(&mut self.cache) {
+        match self.root.render_as_root(&mut self.cache, data) {
             None => {
                 self.damage(Point::new(0., 0.), self.bounds());
             }
@@ -369,9 +403,9 @@ impl<Ctx: AppCtx> Window<Ctx> {
 
     /// Attempts to render window if it is [`Self::dirty`], returning wetheher or not it was changed.
     #[inline(always)]
-    pub fn try_redraw(&mut self) -> bool {
+    pub fn try_redraw(&mut self, data: &Data<State, Message>) -> bool {
         if self.dirty() {
-            self.redraw();
+            self.redraw(data);
             true
         } else {
             false

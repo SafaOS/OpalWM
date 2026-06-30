@@ -1,27 +1,28 @@
-use crate::render::{BoundingConstraints, Color};
+use crate::render::BoundingConstraints;
 use crate::shards::lifecycle::LifeCycle;
 use crate::shards::{CachedShard, Label, RenderCtx, ShardsExt};
-use crate::{EventCtx, ShardEvent};
+use crate::theme::DEFAULT_BUTTON_COLOR;
+use crate::{Data, EventCtx, ShardEvent};
 
 use crate::{
-    AppCtx, BoundingRect,
+    BoundingRect,
     render::{PaintBrush, shapes::Rect},
     shards::Shard,
 };
 
 /// A Clickable button with a label.
-pub struct Button<Ctx: AppCtx> {
-    label: CachedShard<Label<Ctx>>,
+pub struct Button<S, M = ()> {
+    label: CachedShard<Label<S, M>>,
     radius: f32,
-    paint: PaintBrush,
+    paint: Option<PaintBrush>,
     dirty: bool,
 }
 
-impl<Ctx: AppCtx> Button<Ctx> {
-    pub fn new(label: Label<Ctx>) -> Self {
+impl<S, M> Button<S, M> {
+    pub fn new(label: Label<S, M>) -> Self {
         Self {
             radius: 8.,
-            paint: PaintBrush::Color(Color::rgb(0xFD, 0xB0, 0xC0)),
+            paint: None,
             dirty: true,
             label: label.center_text().cached(),
         }
@@ -29,25 +30,31 @@ impl<Ctx: AppCtx> Button<Ctx> {
 
     /// Sets the paint brush for the button.
     pub fn with_paint(mut self, paint: impl Into<PaintBrush>) -> Self {
-        self.paint = paint.into();
+        self.paint = Some(paint.into());
         self
     }
 
     /// Sets the paint brush for the button.
-    pub fn set_paint(&mut self, paint: PaintBrush) {
-        self.paint = paint;
+    pub fn set_paint(&mut self, paint: impl Into<PaintBrush>) {
+        self.paint = Some(paint.into());
         self.dirty = true;
     }
 }
 
-impl<Ctx: AppCtx> Shard<Ctx> for Button<Ctx> {
+impl<T, M> Shard<T, M> for Button<T, M> {
     fn dirty(&self) -> bool {
-        self.dirty || self.label.dirty()
+        self.dirty || Shard::<T, M>::dirty(&self.label)
     }
 
-    fn lifecycle(&mut self, _: &mut super::lifecycle::LifeCycleCtx, event: &LifeCycle) {
+    fn lifecycle(
+        &mut self,
+        _: &mut super::lifecycle::LifeCycleCtx,
+        event: &LifeCycle,
+        _: &Data<T, M>,
+    ) {
         match event {
-            LifeCycle::Init { .. } | LifeCycle::HotChanged(_) => self.dirty = true,
+            LifeCycle::Init { .. } => {}
+            LifeCycle::HotChanged(_) => self.dirty = true,
             _ => {}
         }
     }
@@ -58,7 +65,7 @@ impl<Ctx: AppCtx> Shard<Ctx> for Button<Ctx> {
         let max = constraints.max();
 
         let label_laid = ctx.with_constraints(BoundingConstraints::from_max(max), |ctx| {
-            self.label.layout(ctx)
+            Shard::<T, M>::layout(&mut self.label, ctx)
         });
 
         let w = min
@@ -73,7 +80,12 @@ impl<Ctx: AppCtx> Shard<Ctx> for Button<Ctx> {
         super::ShardLayout::from_bounds(BoundingRect::new(w, h))
     }
 
-    fn on_event(&mut self, event_ctx: &mut EventCtx, event: &ShardEvent, _app_ctx: &mut Ctx) {
+    fn on_event(
+        &mut self,
+        event_ctx: &mut EventCtx,
+        event: &ShardEvent,
+        _app_ctx: &mut Data<T, M>,
+    ) {
         match event {
             ShardEvent::MouseClick(_) => {
                 event_ctx.set_active(true);
@@ -87,7 +99,11 @@ impl<Ctx: AppCtx> Shard<Ctx> for Button<Ctx> {
         }
     }
 
-    fn render(&mut self, ctx: &mut RenderCtx) -> Option<(crate::Point, BoundingRect)> {
+    fn render(
+        &mut self,
+        ctx: &mut RenderCtx,
+        data: &Data<T, M>,
+    ) -> Option<(crate::Point, BoundingRect)> {
         let layout = ctx.layout();
         let is_active = ctx.is_active();
         let is_hot = ctx.is_hot();
@@ -95,15 +111,20 @@ impl<Ctx: AppCtx> Shard<Ctx> for Button<Ctx> {
         let w = layout.bounds.width();
         let h = layout.bounds.height();
 
-        ctx.fill(&self.paint, &Rect::new_rect(w, h).round(self.radius));
+        let paint = match self.paint {
+            None => &data.env().get(DEFAULT_BUTTON_COLOR).into(),
+            Some(ref p) => p,
+        };
+
+        ctx.fill(paint, &Rect::new_rect(w, h).round(self.radius));
 
         let overlay_alpha = if !is_active { 20 } else { 36 };
 
-        self.label.render(ctx);
+        self.label.render(ctx, data);
 
         if is_hot {
             ctx.fill(
-                &self.paint.with_alpha(overlay_alpha),
+                &paint.with_alpha(overlay_alpha),
                 &Rect::new_rect(w, h).round(self.radius),
             );
         }

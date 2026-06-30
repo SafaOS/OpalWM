@@ -1,5 +1,5 @@
 use crate::{
-    AppCtx, EventCtx, ShardEvent,
+    Data, EventCtx, ShardEvent,
     render::{BoundingConstraints, BoundingRect, Padding, Point},
     shards::{AxisAlign, RenderCtx, Shard, ShardLayout, ShardNode, lifecycle::LifeCycle},
 };
@@ -53,9 +53,9 @@ pub enum Justify {
     SpaceBetween,
 }
 
-enum Element<Ctx: AppCtx> {
+enum Element<S, M> {
     Normal {
-        node: ShardNode<Ctx>,
+        node: ShardNode<S, M>,
         flex_weight: f32,
     },
     Spacer {
@@ -64,8 +64,8 @@ enum Element<Ctx: AppCtx> {
     },
 }
 
-impl<Ctx: AppCtx> Element<Ctx> {
-    pub fn node_mut(&mut self) -> Option<&mut ShardNode<Ctx>> {
+impl<S, M> Element<S, M> {
+    pub fn node_mut(&mut self) -> Option<&mut ShardNode<S, M>> {
         match self {
             Self::Normal { node, .. } => Some(node),
             Self::Spacer { .. } => None,
@@ -90,13 +90,13 @@ impl<Ctx: AppCtx> Element<Ctx> {
 }
 
 /// A container that dynamically distributes its children.
-pub struct Stack<Ctx: AppCtx> {
+pub struct Stack<S = (), M = ()> {
     direction: Direction,
     default_align: AxisAlign,
     padding: Padding,
     justify_content: Justify,
 
-    elements: Vec<Element<Ctx>>,
+    elements: Vec<Element<S, M>>,
     dirty: bool,
     layout_changed: bool,
     cursor_at: Option<Point>,
@@ -104,7 +104,7 @@ pub struct Stack<Ctx: AppCtx> {
     size: BoundingRect,
 }
 
-impl<Ctx: AppCtx> Stack<Ctx> {
+impl<T, M> Stack<T, M> {
     pub fn new(direction: Direction) -> Self {
         Self {
             direction,
@@ -174,7 +174,7 @@ impl<Ctx: AppCtx> Stack<Ctx> {
     ///
     /// Currently behaves the same as [`Self::with_flex`] but with weight as 0
     #[inline]
-    pub fn with<S: Shard<Ctx> + 'static>(self, shard: S) -> Self {
+    pub fn with<S: Shard<T, M> + 'static>(self, shard: S) -> Self {
         self.with_flex(shard, 0.)
     }
 
@@ -182,7 +182,7 @@ impl<Ctx: AppCtx> Stack<Ctx> {
     ///
     /// With its size being determined by a given flex weight.
     #[inline]
-    pub fn with_flex<S: Shard<Ctx> + 'static>(mut self, shard: S, weight: f32) -> Self {
+    pub fn with_flex<S: Shard<T, M> + 'static>(mut self, shard: S, weight: f32) -> Self {
         self.elements.push(Element::Normal {
             node: ShardNode::new(shard),
             flex_weight: weight,
@@ -201,16 +201,21 @@ impl<Ctx: AppCtx> Stack<Ctx> {
     }
 }
 
-impl<Ctx: AppCtx> Shard<Ctx> for Stack<Ctx> {
+impl<S, M> Shard<S, M> for Stack<S, M> {
     fn dirty(&self) -> bool {
         self.layout_changed || self.dirty
     }
-    fn lifecycle(&mut self, _: &mut super::lifecycle::LifeCycleCtx, event: &LifeCycle) {
+    fn lifecycle(
+        &mut self,
+        _: &mut super::lifecycle::LifeCycleCtx,
+        event: &LifeCycle,
+        data: &Data<S, M>,
+    ) {
         match event {
             LifeCycle::Init { .. } | LifeCycle::WindowMetaChanged { .. } => {
                 for ele in &mut self.elements {
                     if let Some(node) = ele.node_mut() {
-                        node.route_lifecycle(event);
+                        node.route_lifecycle(event, data);
                     }
                 }
             }
@@ -439,7 +444,7 @@ impl<Ctx: AppCtx> Shard<Ctx> for Stack<Ctx> {
         stack_layout
     }
 
-    fn on_event(&mut self, event_ctx: &mut EventCtx, event: &ShardEvent, app_ctx: &mut Ctx) {
+    fn on_event(&mut self, event_ctx: &mut EventCtx, event: &ShardEvent, data: &mut Data<S, M>) {
         for node in self.elements.iter_mut().filter_map(|e| e.node_mut()) {
             if event.is_mouse_event() {
                 self.cursor_at = event_ctx.event_origin();
@@ -449,14 +454,14 @@ impl<Ctx: AppCtx> Shard<Ctx> for Stack<Ctx> {
                 event_ctx.shard_origin(),
                 event_ctx.event_origin(),
                 event,
-                app_ctx,
+                data,
             );
 
             self.dirty |= node.is_dirty();
         }
     }
 
-    fn on_ctx_update(&mut self, context: &Ctx) {
+    fn on_ctx_update(&mut self, context: &Data<S, M>) {
         for node in self.elements.iter_mut().filter_map(|e| e.node_mut()) {
             node.on_ctx_update(context);
             self.dirty |= node.is_dirty();
@@ -467,8 +472,8 @@ impl<Ctx: AppCtx> Shard<Ctx> for Stack<Ctx> {
         &mut self,
         _layout: &ShardLayout,
         pos: Point,
-        state: &mut Ctx,
-        message: &Ctx::Message,
+        state: &mut Data<S, M>,
+        message: &M,
     ) {
         for node in self.elements.iter_mut().filter_map(|e| e.node_mut()) {
             node.route_message(pos, state, message);
@@ -476,7 +481,7 @@ impl<Ctx: AppCtx> Shard<Ctx> for Stack<Ctx> {
         }
     }
 
-    fn render(&mut self, ctx: &mut RenderCtx) -> Option<(Point, BoundingRect)> {
+    fn render(&mut self, ctx: &mut RenderCtx, data: &Data<S, M>) -> Option<(Point, BoundingRect)> {
         let origin = ctx.origin();
 
         let mut results: Option<(Point, BoundingRect)>;
@@ -484,7 +489,7 @@ impl<Ctx: AppCtx> Shard<Ctx> for Stack<Ctx> {
 
         if core::mem::take(&mut self.layout_changed) {
             for node in self.elements.iter_mut().filter_map(|e| e.node_mut()) {
-                node.render(ctx, true, self.cursor_at);
+                node.render(ctx, true, self.cursor_at, data);
                 new_dirty |= node.is_dirty();
             }
 
@@ -501,7 +506,7 @@ impl<Ctx: AppCtx> Shard<Ctx> for Stack<Ctx> {
                         .layout_ref()
                         .expect("Attempt to render before laying out elements");
 
-                    node.render(ctx, false, self.cursor_at);
+                    node.render(ctx, false, self.cursor_at, data);
                     if let Some((d_pos, d_rect)) = results.as_mut() {
                         let d_last_x = d_pos.x() + d_rect.width();
                         let d_last_y = d_pos.y() + d_rect.height();
@@ -518,7 +523,7 @@ impl<Ctx: AppCtx> Shard<Ctx> for Stack<Ctx> {
                     }
                 } else {
                     // Render only
-                    node.render(ctx, false, self.cursor_at);
+                    node.render(ctx, false, self.cursor_at, data);
                 }
 
                 new_dirty |= node.is_dirty();
