@@ -67,6 +67,9 @@ impl<'f> LayoutCtx<'f> {
 /// A shard is a widget.
 pub trait Shard<S = (), M = ()> {
     fn dirty(&self) -> bool;
+    fn should_relayout(&self) -> bool {
+        false
+    }
     /// [`LifeCycle`] report.
     fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, data: &Data<S, M>) {
         _ = ctx;
@@ -227,6 +230,10 @@ impl<State, Message> ShardNode<State, Message> {
 
     pub fn is_dirty(&self) -> bool {
         self.shard.dirty()
+    }
+
+    pub fn should_relayout(&self) -> bool {
+        self.shard.should_relayout()
     }
 
     pub fn position(&self) -> Point {

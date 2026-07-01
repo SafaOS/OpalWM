@@ -11,6 +11,10 @@ trait ExtShard<S, M, Inner: Shard<S, M> + ?Sized> {
     fn inner_mut(&mut self) -> &mut Inner;
 
     #[inline(always)]
+    fn should_relayout(&self) -> bool {
+        self.inner().should_relayout()
+    }
+    #[inline(always)]
     fn layout(&mut self, ctx: &mut LayoutCtx) -> ShardLayout {
         self.inner_mut().layout(ctx)
     }
@@ -54,6 +58,10 @@ macro_rules! ext_impl {
             #[inline(always)]
             fn dirty(&self) -> bool {
                 <Self as ExtShard<T, M, _>>::dirty(self)
+            }
+            #[inline(always)]
+            fn should_relayout(&self) -> bool {
+                <Self as ExtShard<T, M, _>>::should_relayout(self)
             }
             #[inline(always)]
             fn layout(&mut self, ctx: &mut LayoutCtx) -> ShardLayout {

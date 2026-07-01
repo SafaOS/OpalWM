@@ -1,6 +1,6 @@
 use crate::{
     Data, EventCtx, ShardEvent,
-    render::{BoundingConstraints, BoundingRect, Padding, Point},
+    render::{BoundingConstraints, BoundingRect, Padding, Point, Vec2},
     shards::{AxisAlign, RenderCtx, Shard, ShardLayout, ShardNode, lifecycle::LifeCycle},
 };
 
@@ -205,6 +205,10 @@ impl<S, M> Shard<S, M> for Stack<S, M> {
     fn dirty(&self) -> bool {
         self.layout_changed || self.dirty
     }
+    fn should_relayout(&self) -> bool {
+        self.layout_changed
+    }
+
     fn lifecycle(
         &mut self,
         _: &mut super::lifecycle::LifeCycleCtx,
@@ -216,6 +220,8 @@ impl<S, M> Shard<S, M> for Stack<S, M> {
                 for ele in &mut self.elements {
                     if let Some(node) = ele.node_mut() {
                         node.route_lifecycle(event, data);
+                        self.dirty |= node.is_dirty();
+                        self.layout_changed |= node.should_relayout();
                     }
                 }
             }
@@ -458,6 +464,7 @@ impl<S, M> Shard<S, M> for Stack<S, M> {
             );
 
             self.dirty |= node.is_dirty();
+            self.layout_changed |= node.should_relayout();
         }
     }
 
@@ -465,6 +472,7 @@ impl<S, M> Shard<S, M> for Stack<S, M> {
         for node in self.elements.iter_mut().filter_map(|e| e.node_mut()) {
             node.on_ctx_update(context);
             self.dirty |= node.is_dirty();
+            self.layout_changed |= node.should_relayout();
         }
     }
 
@@ -482,15 +490,15 @@ impl<S, M> Shard<S, M> for Stack<S, M> {
     }
 
     fn render(&mut self, ctx: &mut RenderCtx, data: &Data<S, M>) -> Option<(Point, BoundingRect)> {
-        let origin = ctx.origin();
-
         let mut results: Option<(Point, BoundingRect)>;
         let mut new_dirty = false;
+        let mut new_relayout = false;
 
-        if core::mem::take(&mut self.layout_changed) {
+        if core::mem::replace(&mut self.layout_changed, false) {
             for node in self.elements.iter_mut().filter_map(|e| e.node_mut()) {
                 node.render(ctx, true, self.cursor_at, data);
                 new_dirty |= node.is_dirty();
+                new_relayout |= node.should_relayout();
             }
 
             results = None;
@@ -500,37 +508,52 @@ impl<S, M> Shard<S, M> for Stack<S, M> {
             for node in self.elements.iter_mut().filter_map(|e| e.node_mut()) {
                 if node.is_dirty() {
                     // Render and calculate damage
-                    let ele_abs_pos = origin + node.position();
+                    let ele_abs_pos = node.position();
 
                     let layout = *node
                         .layout_ref()
                         .expect("Attempt to render before laying out elements");
 
-                    node.render(ctx, false, self.cursor_at, data);
-                    if let Some((d_pos, d_rect)) = results.as_mut() {
+                    let render_results = node.render(ctx, false, self.cursor_at, data);
+
+                    let render_pos = render_results
+                        .map(|(p, _)| p + ele_abs_pos)
+                        .unwrap_or(ele_abs_pos);
+                    let render_rect = render_results
+                        .map(|(_, v)| v)
+                        .unwrap_or(layout.full_bounds());
+
+                    if let Some((d_pos, d_rect)) = results.as_mut()
+                        && *d_rect != BoundingRect::new(0., 0.)
+                    {
                         let d_last_x = d_pos.x() + d_rect.width();
                         let d_last_y = d_pos.y() + d_rect.height();
 
-                        let x = d_pos.x().min(ele_abs_pos.x());
-                        let y = d_pos.y().min(ele_abs_pos.y());
-                        let w = d_last_x.max(ele_abs_pos.x() + layout.bounds.width()) - x;
-                        let h = d_last_y.max(ele_abs_pos.y() + layout.bounds.height()) - y;
+                        let x = d_pos.x().min(render_pos.x());
+                        let y = d_pos.y().min(render_pos.y());
+                        let w = d_last_x.max(render_pos.x() + render_rect.width()) - x;
+                        let h = d_last_y.max(render_pos.y() + render_rect.height()) - y;
 
                         *d_pos = Point::new(x, y);
                         *d_rect = BoundingRect::new(w, h);
                     } else {
-                        results = Some((ele_abs_pos, layout.bounds));
+                        results = Some((render_pos, render_rect));
                     }
                 } else {
                     // Render only
                     node.render(ctx, false, self.cursor_at, data);
                 }
 
+                if results.is_none() {
+                    results = Some((Vec2::new(f32::MAX, f32::MAX), BoundingRect::new(0., 0.)));
+                }
                 new_dirty |= node.is_dirty();
+                new_relayout |= node.should_relayout();
             }
         }
 
         self.dirty = new_dirty;
+        self.layout_changed = new_relayout;
         results
     }
 }

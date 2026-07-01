@@ -385,11 +385,13 @@ impl<State, Message> Window<State, Message> {
 
     /// Re-renders the window even if it isn't dirty, may be costy.
     pub fn redraw(&mut self, data: &Data<State, Message>) {
-        let constraints = self.constraints();
-        self.root.layout(&mut LayoutCtx {
-            font_system: self.cache.font_system(),
-            constraints,
-        });
+        if self.root.should_relayout() {
+            let constraints = self.constraints();
+            self.root.layout(&mut LayoutCtx {
+                font_system: self.cache.font_system(),
+                constraints,
+            });
+        }
 
         match self.root.render_as_root(&mut self.cache, data) {
             None => {

@@ -93,6 +93,10 @@ impl<S, M> Shard<S, M> for Label<S, M> {
         self.text_changed || self.buffer.redraw()
     }
 
+    fn should_relayout(&self) -> bool {
+        self.dirty()
+    }
+
     fn lifecycle(
         &mut self,
         _: &mut super::LifeCycleCtx,
