@@ -4,6 +4,8 @@ use std::{
     io::ErrorKind,
     process::{Command, Stdio},
     sync::Arc,
+    thread::sleep,
+    time::Duration,
 };
 
 use libopal::{defs::ShmKey, window::WindowFlags};
@@ -382,10 +384,6 @@ pub fn listener_thread() {
     let listener = listener_builder.bind().expect("Failed to bind a listener");
     log!("WM Listening at {}", addr);
 
-    spawn_hello();
-    spawn_desktop();
-    spawn_terminal();
-
     let opal_use_threads_var = env::var("OPAL_USE_THREADS")
         .map(|s| s.parse::<u8>().ok())
         .ok()
@@ -401,5 +399,12 @@ pub fn listener_thread() {
         }
     }
 
+    std::thread::spawn(|| {
+        sleep(Duration::from_millis(10));
+        spawn_hello();
+        spawn_desktop();
+        sleep(Duration::from_millis(250));
+        spawn_terminal();
+    });
     executor::block_on(listener_loop(listener), crate::window::redraw);
 }
