@@ -1,4 +1,4 @@
-use std::ops::{Add, AddAssign, Deref, DerefMut, Div, Mul, Sub, SubAssign};
+use std::ops::{Add, AddAssign, Deref, DerefMut, Div, Mul, Neg, Sub, SubAssign};
 
 pub use libopal::display::Pixel as Color;
 use tiny_skia::PathBuilder;
@@ -70,6 +70,13 @@ impl Mul<f32> for Vec2 {
     type Output = Self;
     fn mul(self, rhs: f32) -> Self::Output {
         Self::new(self.x() * rhs, self.y() * rhs)
+    }
+}
+
+impl Neg for Vec2 {
+    type Output = Self;
+    fn neg(self) -> Self::Output {
+        Self::new(-self.x(), -self.y())
     }
 }
 

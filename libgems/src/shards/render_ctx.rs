@@ -2,7 +2,7 @@ use cosmic_text::FontSystem;
 
 use crate::{
     BoundingRect, Point,
-    render::{Canvas, CanvasContext, PaintBrush, Shape},
+    render::{CanvasContext, PaintBrush, Shape},
     shards::{ShardLayout, ShardState},
 };
 
@@ -39,6 +39,11 @@ impl<'s, 'c> RenderCtx<'s, 'c> {
     }
 
     #[inline]
+    pub fn move_by(&mut self, relative: Point) -> &mut Self {
+        self.move_to(self.origin + relative)
+    }
+
+    #[inline]
     pub fn with_state<R, F: FnOnce(&mut RenderCtx) -> R>(
         &mut self,
         state: &ShardState,
@@ -56,12 +61,12 @@ impl<'s, 'c> RenderCtx<'s, 'c> {
     }
 
     #[inline]
-    pub fn with_canvas<R, F: FnOnce(&mut RenderCtx) -> R>(
+    pub fn with_pixmap<R, F: FnOnce(&mut RenderCtx) -> R>(
         &mut self,
-        canvas: &mut impl Canvas,
+        pixmap: tiny_skia::PixmapMut,
         f: F,
     ) -> R {
-        let mut ctx = CanvasContext::new(self.canvas.cache, canvas);
+        let mut ctx = CanvasContext::new(self.canvas.cache, pixmap);
         let mut ctx = RenderCtx {
             origin: self.origin,
             canvas: &mut ctx,
@@ -102,7 +107,7 @@ impl<'s, 'c> RenderCtx<'s, 'c> {
     }
 
     #[inline]
-    pub fn fill_with_pixmap(&mut self, pixmap: &tiny_skia::Pixmap) {
+    pub fn fill_with_pixmap(&mut self, pixmap: tiny_skia::PixmapRef) {
         self.canvas.fill_with_pixmap(self.origin, pixmap);
     }
 
@@ -121,6 +126,16 @@ impl<'s, 'c> RenderCtx<'s, 'c> {
     #[inline]
     pub fn canvas(&mut self) -> &mut CanvasContext<'c> {
         self.canvas
+    }
+
+    #[inline]
+    pub fn pixmap(&mut self) -> &mut tiny_skia::PixmapMut<'c> {
+        &mut self.canvas.pixmap
+    }
+
+    #[inline]
+    pub fn path(&mut self) -> &mut tiny_skia::PathBuilder {
+        self.canvas.cache.path()
     }
 
     #[inline]

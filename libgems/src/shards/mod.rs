@@ -6,8 +6,10 @@ mod layout;
 pub mod lifecycle;
 pub use event::EventCtx;
 pub use lifecycle::LifeCycleCtx;
+mod message_ctx;
 mod primitive;
 mod render_ctx;
+pub use message_ctx::*;
 mod stack;
 
 pub use button::*;
@@ -20,7 +22,7 @@ pub use stack::*;
 
 use crate::{
     Data, ShardEvent,
-    render::{BoundingConstraints, BoundingRect, CanvasCache, CanvasContext, NoopCanvas, Point},
+    render::{BoundingConstraints, BoundingRect, CanvasCache, Point},
     shards::lifecycle::LifeCycle,
 };
 
@@ -94,17 +96,10 @@ pub trait Shard<S = (), M = ()> {
     /// Executed on a new message.
     ///
     /// Is followed by [`Shard::on_update`] lifecycle.
-    fn on_message(
-        &mut self,
-        layout: &ShardLayout,
-        pos: Point,
-        context: &mut Data<S, M>,
-        message: &M,
-    ) {
-        _ = pos;
-        _ = context;
+    fn on_message(&mut self, ctx: &mut MsgCtx, data: &mut Data<S, M>, message: &M) {
+        _ = ctx;
+        _ = data;
         _ = message;
-        _ = layout;
     }
     /// Executed whenever `context` is potentially muttated.
     fn on_ctx_update(&mut self, context: &Data<S, M>) {
@@ -282,7 +277,7 @@ impl<State, Message> ShardNode<State, Message> {
         event_origin: Option<Point>,
         event: &ShardEvent,
         data: &mut Data<State, Message>,
-    ) {
+    ) -> Option<EventCtx> {
         if let Some(ref layout) = self.layout {
             let is_mouse_event = event.is_mouse_event();
             let origin = self.origin + anchor_by;
@@ -310,7 +305,12 @@ impl<State, Message> ShardNode<State, Message> {
 
             if let Some(mut routed_ctx) = routed_event {
                 self.shard.on_event(&mut routed_ctx, event, data);
+                Some(routed_ctx)
+            } else {
+                None
             }
+        } else {
+            None
         }
     }
 
@@ -322,14 +322,13 @@ impl<State, Message> ShardNode<State, Message> {
         anchor_by: Point,
         data: &mut Data<State, Message>,
         message: &Message,
-    ) {
-        let layout = self
-            .layout
-            .as_ref()
-            .expect("Route message called on non-layedout shard");
+    ) -> Option<MsgCtx> {
+        let layout = self.layout.as_ref()?;
         let origin = self.origin + anchor_by;
 
-        self.shard.on_message(layout, origin, data, message);
+        let mut ctx = MsgCtx::new(origin, &mut self.state, layout);
+        self.shard.on_message(&mut ctx, data, message);
+        Some(ctx)
     }
 
     pub fn on_ctx_update(&mut self, data: &Data<State, Message>) {
@@ -368,18 +367,14 @@ impl<State, Message> ShardNode<State, Message> {
         cache: &mut CanvasCache,
         data: &Data<State, Message>,
     ) -> Option<(Point, BoundingRect)> {
-        let mut noop = NoopCanvas;
-        let mut canvas_ctx = CanvasContext::new(cache, &mut noop);
-        let mut ctx = RenderCtx::new(
-            self.origin,
-            &mut canvas_ctx,
-            &self.state,
+        let results = self.shard.render_to_cache(
+            cache,
             self.layout
                 .as_ref()
                 .expect("Attempt to render node with no layout"),
+            &self.state,
+            data,
         );
-
-        let results = self.shard.render(&mut ctx, data);
         self.state.state_changed = false;
         results
     }

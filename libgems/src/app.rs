@@ -118,9 +118,11 @@ impl<State, Message> App<State, Message> {
         self
     }
 
-    pub fn add_window<R: Shard<State, Message>>(&mut self, win: WindowDesc<R>) -> &mut Self {
-        self.windows.push(win.init(&mut self.core));
-        self
+    pub fn add_window<R: Shard<State, Message>>(&mut self, win: WindowDesc<R>) -> WindowID {
+        let win = win.init(&mut self.core);
+        let win_id = win.win_id();
+        self.windows.push(win);
+        win_id
     }
 
     /// Returns whether or not any of the App Windows needs to be redrawn.
@@ -149,6 +151,27 @@ impl<State, Message> App<State, Message> {
         self.try_wait_for_events(true).unwrap()
     }
 
+    pub fn broadcast_message(&mut self, msg: Message) {
+        self.core.broadcast_message(msg);
+        self.handle_messages();
+    }
+
+    fn handle_messages(&mut self) {
+        while !self.core.pending_messages.is_empty() {
+            while let Some(msg) = self.core.pending_messages.pop() {
+                for win in &mut self.windows {
+                    win.broadcast_message(&mut self.core, &msg);
+                }
+            }
+
+            if self.core.pending_messages.is_empty() {
+                for win in &mut self.windows {
+                    win.update_ctx(&self.core);
+                }
+            }
+        }
+    }
+
     pub fn try_wait_for_events(&mut self, blocking: bool) -> Option<DequeuedEvents> {
         let events = if blocking {
             libopal::dequeue_events_blocking().expect("Failed to dequeue events")
@@ -160,15 +183,7 @@ impl<State, Message> App<State, Message> {
             for win in &mut self.windows {
                 if win.win_id() == event.receiver() {
                     win.broadcast_event(&mut self.core, event.event());
-                    while !self.core.pending_messages.is_empty() {
-                        while let Some(msg) = self.core.pending_messages.pop() {
-                            win.broadcast_message(&mut self.core, &msg);
-                        }
-
-                        if self.core.pending_messages.is_empty() {
-                            win.update_ctx(&self.core);
-                        }
-                    }
+                    self.handle_messages();
                     break;
                 }
             }

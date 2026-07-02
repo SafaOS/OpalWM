@@ -1,8 +1,9 @@
 use crate::{
     BoundingRect, Data, EventCtx, Padding, Point, ShardEvent,
-    render::{BoundingConstraints, PaintBrush, TinySkiaCanvas, shapes::Rect},
+    render::{BoundingConstraints, CanvasCache, PaintBrush, shapes::Rect},
     shards::{
-        AxisAlign, LayoutCtx, LifeCycleCtx, RenderCtx, Shard, ShardLayout, lifecycle::LifeCycle,
+        AxisAlign, LayoutCtx, LifeCycleCtx, MsgCtx, RenderCtx, Shard, ShardLayout, ShardState,
+        lifecycle::LifeCycle,
     },
 };
 
@@ -31,14 +32,8 @@ trait ExtShard<S, M, Inner: Shard<S, M> + ?Sized> {
         self.inner_mut().on_event(event_ctx, event, data)
     }
     #[inline(always)]
-    fn on_message(
-        &mut self,
-        layout: &ShardLayout,
-        pos: Point,
-        context: &mut Data<S, M>,
-        message: &M,
-    ) {
-        self.inner_mut().on_message(layout, pos, context, message);
+    fn on_message(&mut self, ctx: &mut MsgCtx, data: &mut Data<S, M>, message: &M) {
+        self.inner_mut().on_message(ctx, data, message);
     }
     #[inline(always)]
     fn on_ctx_update(&mut self, context: &Data<S, M>) {
@@ -87,12 +82,11 @@ macro_rules! ext_impl {
             #[inline(always)]
             fn on_message(
                 &mut self,
-                layout: &ShardLayout,
-                pos: Point,
-                context: &mut Data<T, M>,
+                ctx: &mut MsgCtx,
+                data: &mut Data<T, M>,
                 message: &M,
             ) {
-                <Self as ExtShard<T, M, _>>::on_message(self, layout, pos, context, message)
+                <Self as ExtShard<T, M, _>>::on_message(self, ctx, data, message)
             }
             #[inline(always)]
             fn render(&mut self, ctx: &mut RenderCtx, data: &Data<T, M>) -> Option<(Point, BoundingRect)> {
@@ -122,13 +116,13 @@ pub trait ShardsExt<S = (), M = ()>: Sized + Shard<S, M> {
         }
     }
 
-    fn on_msg<F: FnMut(&mut Data<S, M>, &M, &mut Self) + 'static>(
+    fn on_msg<F: FnMut(&mut MsgCtx, &mut Data<S, M>, &M, &mut Self) + 'static>(
         self,
         f: F,
-    ) -> OnMessage<S, M, Self> {
+    ) -> OnMessage<Self, F> {
         OnMessage {
             shard: self,
-            action: Box::new(f),
+            action: f,
         }
     }
 
@@ -182,6 +176,16 @@ pub trait ShardsExt<S = (), M = ()>: Sized + Shard<S, M> {
         }
     }
 
+    /// Similar to [`Self::pad`] but adds padding to the total size instead of doing special padding.
+    ///
+    /// May give different results
+    fn size_pad(self, padding: Padding) -> SizePaddedBox<Self> {
+        SizePaddedBox {
+            shard: self,
+            padding,
+        }
+    }
+
     /// cross-axis Aligns the given shard to the given alignment ofcourse.
     fn align(self, align: AxisAlign) -> AlignedBox<Self> {
         AlignedBox { shard: self, align }
@@ -226,6 +230,7 @@ macro_rules! impl_deref {
 }
 
 pub(super) use impl_deref;
+use tiny_skia::Pixmap;
 
 /// Represents a shard that cross-axis aligns its child.
 pub struct AlignedBox<S> {
@@ -288,6 +293,55 @@ impl<T, M, S: Shard<T, M>> ExtShard<T, M, S> for PaddedBox<S> {
 
 impl_deref!(PaddedBox<S>, S, S);
 ext_impl!(PaddedBox<S>, S: Shard<T, M>);
+
+/// Represents a shard that pads its child's surrounding.
+pub struct SizePaddedBox<S> {
+    shard: S,
+    padding: Padding,
+}
+
+impl<T, M, S: Shard<T, M>> ExtShard<T, M, S> for SizePaddedBox<S> {
+    fn inner(&self) -> &S {
+        &self.shard
+    }
+
+    fn inner_mut(&mut self) -> &mut S {
+        &mut self.shard
+    }
+
+    fn layout(&mut self, ctx: &mut LayoutCtx) -> ShardLayout {
+        let constr = ctx.constraints();
+
+        let max_w = constr.max().width() - self.padding.padded_width();
+        let max_h = constr.max().height() - self.padding.padded_height();
+
+        let min_w = constr.min().width().min(max_w);
+        let min_h = constr.min().height().min(max_h);
+
+        let mut a_layout = ctx.with_constraints(
+            BoundingConstraints::new(
+                BoundingRect::new(min_w, min_h),
+                BoundingRect::new(max_w, max_h),
+            ),
+            |ctx| self.shard.layout(ctx),
+        );
+
+        let bounds = a_layout.bounds;
+        a_layout.bounds = BoundingRect::new(
+            bounds.width() + self.padding.padded_width(),
+            bounds.height() + self.padding.padded_height(),
+        );
+        a_layout
+    }
+
+    fn render(&mut self, ctx: &mut RenderCtx, data: &Data<T, M>) -> Option<(Point, BoundingRect)> {
+        let ctx = ctx.move_by(Point::new(self.padding.left, self.padding.right));
+        self.shard.render(ctx, data)
+    }
+}
+
+impl_deref!(SizePaddedBox<S>, S, S);
+ext_impl!(SizePaddedBox<S>, S: Shard<T, M>);
 
 /// Represents a shard that limits its child's size.
 pub struct SizedBox<S> {
@@ -449,12 +503,14 @@ impl_deref!(OnLifeCycle<S, F>, S, S, F: FnMut(&mut LifeCycleCtx, &LifeCycle, &mu
 ext_impl!(OnLifeCycle<S, F>, S: Shard<T, M>, F: FnMut(&mut LifeCycleCtx, &LifeCycle, &mut S) + 'static);
 
 /// Represents an action that can be performed when a Message is received.
-pub struct OnMessage<T, M, S: Shard<T, M>> {
+pub struct OnMessage<S, F> {
     shard: S,
-    action: Box<dyn FnMut(&mut Data<T, M>, &M, &mut S) + 'static>,
+    action: F,
 }
 
-impl<T, M, S: Shard<T, M>> ExtShard<T, M, S> for OnMessage<T, M, S> {
+impl<T, M, S: Shard<T, M>, F: FnMut(&mut MsgCtx, &mut Data<T, M>, &M, &mut S)> ExtShard<T, M, S>
+    for OnMessage<S, F>
+{
     fn inner(&self) -> &S {
         &self.shard
     }
@@ -462,34 +518,77 @@ impl<T, M, S: Shard<T, M>> ExtShard<T, M, S> for OnMessage<T, M, S> {
         &mut self.shard
     }
 
-    fn on_message(
-        &mut self,
-        layout: &ShardLayout,
-        pos: Point,
-        context: &mut Data<T, M>,
-        message: &M,
-    ) {
-        (self.action)(context, message, &mut self.shard);
-        self.shard.on_message(layout, pos, context, message);
+    fn on_message(&mut self, ctx: &mut MsgCtx, data: &mut Data<T, M>, message: &M) {
+        (self.action)(ctx, data, message, &mut self.shard);
+        self.shard.on_message(ctx, data, message);
     }
 }
 
-impl_deref!(OnMessage<T, M, S>, S, T, M, S: Shard<T, M>);
-ext_impl!(OnMessage<T, M, S>, S: Shard<T, M>);
+impl_deref!(OnMessage<S, F>, S, S, F);
+ext_impl!(OnMessage<S, F>, S: Shard<T, M>, F: FnMut(&mut MsgCtx, &mut Data<T, M>, &M, &mut S));
 
 /// a Shard that is equalivent to [`S`], but instead of re-drawing the shard every render, it's pixels is cached and copied.
 pub struct CachedShard<S: ?Sized> {
-    cache: Option<TinySkiaCanvas>,
+    cache: Option<Pixmap>,
     shard: S,
 }
 
 impl<S: ?Sized> CachedShard<S> {
-    pub fn cache(&self) -> Option<&TinySkiaCanvas> {
+    pub fn cache(&self) -> Option<&Pixmap> {
         self.cache.as_ref()
     }
 
-    pub fn cache_mut(&mut self) -> Option<&mut TinySkiaCanvas> {
+    pub fn cache_mut(&mut self) -> Option<&mut Pixmap> {
         self.cache.as_mut()
+    }
+}
+
+impl<S: ?Sized> CachedShard<S> {
+    pub fn render_to_cache<T, M>(
+        &mut self,
+        canvas_cache: &mut CanvasCache,
+        layout: &ShardLayout,
+        state: &ShardState,
+        data: &Data<T, M>,
+    ) -> Option<(Point, BoundingRect)>
+    where
+        S: Shard<T, M>,
+    {
+        let mut is_dirty = self.cache.is_none() || self.shard.dirty() || state.state_changed;
+        let bounds = layout.bounds;
+
+        let new_canvas = || {
+            Pixmap::new(
+                bounds.width().ceil().max(1.) as u32,
+                bounds.height().ceil().max(1.) as u32,
+            )
+            .expect("Failed to construct pixmap")
+        };
+        let cache = self.cache.get_or_insert_with(new_canvas);
+
+        if (cache.width() as f32) != bounds.width().ceil()
+            || (cache.height() as f32) != bounds.height().ceil()
+        {
+            *cache = new_canvas();
+            is_dirty = true;
+        }
+
+        let results;
+        if is_dirty {
+            cache.fill(tiny_skia::Color::TRANSPARENT);
+            let mut canvas_ctx = crate::render::CanvasContext::new(canvas_cache, cache.as_mut());
+            let mut ctx = RenderCtx::new(
+                crate::render::Vec2::new(0., 0.),
+                &mut canvas_ctx,
+                state,
+                layout,
+            );
+            results = self.shard.render(&mut ctx, data);
+        } else {
+            results = None;
+        }
+
+        results
     }
 }
 
@@ -508,8 +607,13 @@ impl<T, M, S: Shard<T, M> + ?Sized> ExtShard<T, M, S> for CachedShard<S> {
         let layout = ctx.layout();
         let bounds = layout.bounds;
 
-        let new_canvas =
-            || TinySkiaCanvas::new(bounds.width().ceil() as u32, bounds.height().ceil() as u32);
+        let new_canvas = || {
+            Pixmap::new(
+                bounds.width().ceil().max(1.) as u32,
+                bounds.height().ceil().max(1.) as u32,
+            )
+            .expect("Failed to construct pixmap")
+        };
         let cache = self.cache.get_or_insert_with(new_canvas);
 
         if (cache.width() as f32) != bounds.width().ceil()
@@ -521,8 +625,8 @@ impl<T, M, S: Shard<T, M> + ?Sized> ExtShard<T, M, S> for CachedShard<S> {
 
         let results;
         if is_dirty {
-            cache.pixmap.fill(tiny_skia::Color::TRANSPARENT);
-            results = ctx.with_canvas(cache, |ctx| {
+            cache.fill(tiny_skia::Color::TRANSPARENT);
+            results = ctx.with_pixmap(cache.as_mut(), |ctx| {
                 ctx.move_to(Point::default());
                 self.shard.render(ctx, data)
             });
@@ -530,7 +634,7 @@ impl<T, M, S: Shard<T, M> + ?Sized> ExtShard<T, M, S> for CachedShard<S> {
             results = None;
         }
 
-        ctx.fill_with_pixmap(&cache.pixmap);
+        ctx.fill_with_pixmap(cache.as_ref());
         results
     }
 }

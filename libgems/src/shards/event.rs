@@ -52,6 +52,7 @@ pub struct EventCtx<'a> {
     shard_state: &'a mut ShardState,
     shard_origin: Point,
     shard_layout: &'a ShardLayout,
+    requested_removal: bool,
 }
 
 impl<'a> EventCtx<'a> {
@@ -66,6 +67,7 @@ impl<'a> EventCtx<'a> {
             shard_state,
             shard_origin,
             shard_layout,
+            requested_removal: false,
         }
     }
 
@@ -94,6 +96,14 @@ impl<'a> EventCtx<'a> {
     /// Returns whether the shard is currently hot. (eg. mouse is over the shard).
     pub fn is_hot(&self) -> bool {
         self.shard_state.is_hot()
+    }
+
+    pub fn request_remove(&mut self) {
+        self.requested_removal = true;
+    }
+
+    pub fn requested_remove(&self) -> bool {
+        self.requested_removal
     }
 
     /// Returns whether the shard is currently active. (eg. button is pressed).

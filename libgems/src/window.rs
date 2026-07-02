@@ -33,14 +33,21 @@ impl<'a, Root> WindowDesc<'a, Root> {
             height += TITLE_BAR_HEIGHT;
         }
 
+        let pos = match (config.x, config.y) {
+            (Some(x), Some(y)) => Some((x, y)),
+            (Some(x), None) => Some((x, 0)),
+            (None, Some(y)) => Some((0, y)),
+            (None, None) => None,
+        };
+
         Window::new_with_root(
             config.title,
             libopal::window::Window::create(
                 config.title,
-                WindowFlags::GLOBAL,
+                config.flags,
                 config.width,
                 height,
-                None,
+                pos,
                 None,
             ),
             config
@@ -67,6 +74,7 @@ pub struct WindowBuilder<'a> {
     y: Option<i32>,
     use_all_space: bool,
     bg: Option<PaintBrush>,
+    flags: WindowFlags,
     title: &'a str,
 }
 
@@ -81,6 +89,7 @@ impl<'a> WindowBuilder<'a> {
             y: None,
             use_all_space: true,
             bg: None,
+            flags: WindowFlags::GLOBAL,
             title: "",
         }
     }
@@ -111,6 +120,11 @@ impl<'a> WindowBuilder<'a> {
 
     pub fn y(mut self, y: Option<i32>) -> Self {
         self.y = y;
+        self
+    }
+
+    pub fn flags(mut self, flags: WindowFlags) -> Self {
+        self.flags = flags;
         self
     }
 
@@ -274,10 +288,9 @@ impl<State, Message> Window<State, Message> {
     ///
     /// Damaging is the act of requesting redraw from the WM.
     pub fn damage(&mut self, at: Point, area: BoundingRect) {
-        let Some(canvas) = self.root.shard.cache_mut() else {
+        let Some(pixmap) = self.root.shard.cache_mut() else {
             return;
         };
-        let pixmap = &mut canvas.pixmap;
 
         let damage_x = at.x().ceil() as i32;
         let damage_y = at.y().ceil() as i32;

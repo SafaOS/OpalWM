@@ -10,4 +10,5 @@ mod window;
 pub use app::*;
 pub use cosmic_text;
 pub use env::*;
+pub use tiny_skia;
 pub use window::*;

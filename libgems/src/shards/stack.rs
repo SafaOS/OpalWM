@@ -1,7 +1,7 @@
 use crate::{
     Data, EventCtx, ShardEvent,
     render::{BoundingConstraints, BoundingRect, Padding, Point, Vec2},
-    shards::{AxisAlign, RenderCtx, Shard, ShardLayout, ShardNode, lifecycle::LifeCycle},
+    shards::{AxisAlign, MsgCtx, RenderCtx, Shard, ShardLayout, ShardNode, lifecycle::LifeCycle},
 };
 
 /// Describes the stack direction, horizontal or vertical.
@@ -23,8 +23,8 @@ impl Direction {
     #[inline]
     pub fn bounds_skip(&self, bounds: BoundingRect, padding: Padding) -> Point {
         match self {
-            Self::Horizontal => self.skip(bounds.width()) + self.skip(padding.right),
-            Self::Vertical => self.skip(bounds.height()) + self.skip(padding.bottom),
+            Self::Horizontal => self.skip(bounds.width()) + self.skip(padding.padded_width()),
+            Self::Vertical => self.skip(bounds.height()) + self.skip(padding.padded_height()),
         }
     }
 
@@ -166,7 +166,7 @@ impl<T, M> Stack<T, M> {
 
     #[inline(always)]
     pub fn justify(mut self, justify: Justify) -> Self {
-        self.justify_content = justify;
+        self.layout_changed = core::mem::replace(&mut self.justify_content, justify) != justify;
         self
     }
 
@@ -187,6 +187,7 @@ impl<T, M> Stack<T, M> {
             node: ShardNode::new(shard),
             flex_weight: weight,
         });
+        self.layout_changed = true;
         self
     }
 
@@ -197,6 +198,7 @@ impl<T, M> Stack<T, M> {
             bounds: BoundingRect::new(0., 0.),
             flex_weight: weight,
         });
+        self.layout_changed = true;
         self
     }
 }
@@ -233,6 +235,7 @@ impl<S, M> Shard<S, M> for Stack<S, M> {
         let constraints = ctx.constraints();
         if core::mem::replace(&mut self.last_constraints, constraints) == constraints
             && !self.dirty()
+            && !self.should_relayout()
         {
             return super::ShardLayout {
                 bounds: self.size,
@@ -367,7 +370,7 @@ impl<S, M> Shard<S, M> for Stack<S, M> {
         };
 
         let our_bounds = BoundingRect::new(our_width, our_height);
-        self.layout_changed = layout_changed;
+        self.layout_changed |= layout_changed;
         self.size = our_bounds;
 
         let stack_layout = ShardLayout {
@@ -381,7 +384,7 @@ impl<S, M> Shard<S, M> for Stack<S, M> {
             let mut gap = 0.;
             match self.justify_content {
                 Justify::Center => {
-                    gap = leftover_space / 2.;
+                    curr_pos += self.direction.skip(leftover_space / 2.);
                 }
                 Justify::End => {
                     curr_pos = curr_pos + self.direction.skip(leftover_space);
@@ -417,20 +420,21 @@ impl<S, M> Shard<S, M> for Stack<S, M> {
                 if let Some(node) = ele.node_mut() {
                     let layout = node.layout.expect("No layout for node to place");
                     let align = layout.align;
-                    let padding = layout.padding;
-                    let added = Point::new(padding.left, padding.top);
+                    let node_pad = Point::new(layout.padding.left, layout.padding.top);
 
                     match align {
                         AxisAlign::Default | AxisAlign::Start => {
                             node.plot_at(
-                                curr_pos + Point::new(self.padding.left, self.padding.top) + added,
+                                curr_pos
+                                    + Point::new(self.padding.left, self.padding.top)
+                                    + node_pad,
                             );
                         }
                         AxisAlign::End => {
                             node.plot_at(
                                 ((curr_pos + Point::new(0., self.padding.top) + rev_our_skip)
                                     - rev_ele_skip)
-                                    + added,
+                                    + node_pad,
                             );
                         }
                         AxisAlign::Center => {
@@ -438,7 +442,7 @@ impl<S, M> Shard<S, M> for Stack<S, M> {
                                 (curr_pos
                                     + Point::new(0., self.padding.top)
                                     + ((rev_our_skip - rev_ele_skip) / 2.))
-                                    + added,
+                                    + node_pad,
                             );
                         }
                     }
@@ -451,21 +455,27 @@ impl<S, M> Shard<S, M> for Stack<S, M> {
     }
 
     fn on_event(&mut self, event_ctx: &mut EventCtx, event: &ShardEvent, data: &mut Data<S, M>) {
-        for node in self.elements.iter_mut().filter_map(|e| e.node_mut()) {
-            if event.is_mouse_event() {
-                self.cursor_at = event_ctx.event_origin();
+        self.elements.retain_mut(|e| {
+            if let Some(node) = e.node_mut() {
+                if event.is_mouse_event() {
+                    self.cursor_at = event_ctx.event_origin();
+                }
+
+                let eve_ctx = node.route_event(
+                    event_ctx.shard_origin(),
+                    event_ctx.event_origin(),
+                    event,
+                    data,
+                );
+                let requested_remove = eve_ctx.is_some_and(|r| r.requested_remove());
+
+                self.dirty |= node.is_dirty();
+                self.layout_changed |= node.should_relayout() | requested_remove;
+                !requested_remove
+            } else {
+                true
             }
-
-            node.route_event(
-                event_ctx.shard_origin(),
-                event_ctx.event_origin(),
-                event,
-                data,
-            );
-
-            self.dirty |= node.is_dirty();
-            self.layout_changed |= node.should_relayout();
-        }
+        });
     }
 
     fn on_ctx_update(&mut self, context: &Data<S, M>) {
@@ -476,17 +486,22 @@ impl<S, M> Shard<S, M> for Stack<S, M> {
         }
     }
 
-    fn on_message(
-        &mut self,
-        _layout: &ShardLayout,
-        pos: Point,
-        state: &mut Data<S, M>,
-        message: &M,
-    ) {
-        for node in self.elements.iter_mut().filter_map(|e| e.node_mut()) {
-            node.route_message(pos, state, message);
+    fn on_message(&mut self, ctx: &mut MsgCtx, data: &mut Data<S, M>, message: &M) {
+        self.elements.retain_mut(|e| {
+            let Some(node) = e.node_mut() else {
+                return true;
+            };
+
+            let Some(n_ctx) = node.route_message(ctx.origin(), data, message) else {
+                self.layout_changed = true;
+                return true;
+            };
+            let requested_remove = n_ctx.requested_remove();
+
             self.dirty |= node.is_dirty();
-        }
+            self.layout_changed |= node.should_relayout() | requested_remove;
+            !requested_remove
+        });
     }
 
     fn render(&mut self, ctx: &mut RenderCtx, data: &Data<S, M>) -> Option<(Point, BoundingRect)> {
