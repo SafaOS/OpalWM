@@ -11,7 +11,7 @@ pub struct Label<S, M = ()> {
     wrap: Wrap,
     text: String,
     text_changed: bool,
-    paint: Option<PaintBrush>,
+    paint: Option<PaintBrush<'static>>,
     attrs: Attrs<'static>,
     center: bool,
     _ctx: PhantomData<(S, M)>,
@@ -44,7 +44,7 @@ impl<S, M> Label<S, M> {
 
     #[inline]
     /// Sets the paint brush for the button.
-    pub fn with_paint(mut self, paint: impl Into<PaintBrush>) -> Self {
+    pub fn with_paint(mut self, paint: impl Into<PaintBrush<'static>>) -> Self {
         self.paint = Some(paint.into());
         self
     }

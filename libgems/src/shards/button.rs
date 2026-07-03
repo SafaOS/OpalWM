@@ -14,7 +14,7 @@ use crate::{
 pub struct Button<S, M = ()> {
     label: CachedShard<Label<S, M>>,
     radius: f32,
-    paint: Option<PaintBrush>,
+    paint: Option<PaintBrush<'static>>,
     dirty: bool,
 }
 
@@ -29,13 +29,13 @@ impl<S, M> Button<S, M> {
     }
 
     /// Sets the paint brush for the button.
-    pub fn with_paint(mut self, paint: impl Into<PaintBrush>) -> Self {
+    pub fn with_paint(mut self, paint: impl Into<PaintBrush<'static>>) -> Self {
         self.paint = Some(paint.into());
         self
     }
 
     /// Sets the paint brush for the button.
-    pub fn set_paint(&mut self, paint: impl Into<PaintBrush>) {
+    pub fn set_paint(&mut self, paint: impl Into<PaintBrush<'static>>) {
         self.paint = Some(paint.into());
         self.dirty = true;
     }
@@ -118,15 +118,15 @@ impl<T, M> Shard<T, M> for Button<T, M> {
 
         ctx.fill(paint, &Rect::new_rect(w, h).round(self.radius));
 
-        let overlay_alpha = if !is_active { 20 } else { 36 };
-
         self.label.render(ctx, data);
 
+        let overlay_alpha = if !is_active { 0.1 } else { 0.21 };
+
+        let overlay_paint = PaintBrush::from(crate::Color::hex_rgb(0xebdbb2))
+            .with_opacity(overlay_alpha)
+            .with_blend(tiny_skia::BlendMode::Overlay);
         if is_hot {
-            ctx.fill(
-                &paint.with_alpha(overlay_alpha),
-                &Rect::new_rect(w, h).round(self.radius),
-            );
+            ctx.fill(&overlay_paint, &Rect::new_rect(w, h).round(self.radius));
         }
         self.dirty = false;
         None

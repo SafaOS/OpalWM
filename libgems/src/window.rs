@@ -58,7 +58,7 @@ impl<'a, Root> WindowDesc<'a, Root> {
                         .ok()
                         .map(|c| c.into())
                 })
-                .unwrap_or(PaintBrush::Color(super::Color::WHITE)),
+                .unwrap_or(super::Color::WHITE.into()),
             self.root,
             config.use_all_space,
             app,
@@ -73,7 +73,7 @@ pub struct WindowBuilder<'a> {
     x: Option<i32>,
     y: Option<i32>,
     use_all_space: bool,
-    bg: Option<PaintBrush>,
+    bg: Option<PaintBrush<'static>>,
     flags: WindowFlags,
     title: &'a str,
 }
@@ -108,7 +108,7 @@ impl<'a> WindowBuilder<'a> {
     }
 
     #[inline]
-    pub fn background(mut self, background: impl Into<PaintBrush>) -> Self {
+    pub fn background(mut self, background: impl Into<PaintBrush<'static>>) -> Self {
         self.bg = Some(background.into());
         self
     }
@@ -203,7 +203,7 @@ impl<State, Message> Window<State, Message> {
     fn new_with_root<Root: Shard<State, Message> + 'static>(
         title: &str,
         inner: libopal::window::Window,
-        bg: PaintBrush,
+        bg: PaintBrush<'static>,
         root: Root,
         fill_with_root: bool,
         data: &mut Data<State, Message>,

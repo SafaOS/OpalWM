@@ -199,7 +199,7 @@ pub trait ShardsExt<S = (), M = ()>: Sized + Shard<S, M> {
     }
 
     /// Constructs a new [`Container`] around self with a given background.
-    fn background(self, paint: impl Into<PaintBrush>) -> Container<Self> {
+    fn background(self, paint: impl Into<PaintBrush<'static>>) -> Container<Self> {
         Container {
             background: paint.into(),
             radius: 0.,
@@ -647,15 +647,15 @@ ext_impl!(CachedShard<S>, S: Shard<T, M> + ?Sized);
 /// Currently supports adding backgrounds and such.
 #[derive(Debug)]
 pub struct Container<S> {
-    background: PaintBrush,
-    border: Option<(PaintBrush, f32)>,
+    background: PaintBrush<'static>,
+    border: Option<(PaintBrush<'static>, f32)>,
     radius: f32,
     shard: S,
 }
 
 impl<S> Container<S> {
     #[inline]
-    pub fn background(mut self, background: impl Into<PaintBrush>) -> Self {
+    pub fn background(mut self, background: impl Into<PaintBrush<'static>>) -> Self {
         self.background = background.into();
         self
     }
@@ -666,7 +666,7 @@ impl<S> Container<S> {
         self
     }
     #[inline]
-    pub fn border(mut self, color: impl Into<PaintBrush>, thickness: f32) -> Self {
+    pub fn border(mut self, color: impl Into<PaintBrush<'static>>, thickness: f32) -> Self {
         self.border = Some((color.into(), thickness));
         self
     }

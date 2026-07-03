@@ -7,23 +7,50 @@ use crate::render::{BoundingRect, Point, Shape};
 
 use super::Color;
 
-/// Represents a Paint brush used to paint pixels such as a Color(only for now) or a gradient.
+/// Represents a Paint brush used to paint pixels such as a Color or a gradient.
 #[derive(Debug, Clone)]
-pub enum PaintBrush {
-    Color(Color),
-}
+pub struct PaintBrush<'a>(tiny_skia::Paint<'a>);
 
-impl From<Color> for PaintBrush {
+impl From<Color> for PaintBrush<'static> {
     fn from(value: Color) -> Self {
-        Self::Color(value)
+        let mut paint = tiny_skia::Paint::default();
+        paint.set_color_rgba8(value.r(), value.g(), value.b(), value.a());
+        Self(paint)
     }
 }
 
-impl PaintBrush {
-    pub const fn with_alpha(&self, alpha: u8) -> Self {
-        match self {
-            PaintBrush::Color(color) => PaintBrush::Color(color.with_alpha(alpha)),
-        }
+impl<'a> From<tiny_skia::Paint<'a>> for PaintBrush<'a> {
+    fn from(value: tiny_skia::Paint<'a>) -> Self {
+        Self(value)
+    }
+}
+
+impl<'a> Into<tiny_skia::Paint<'a>> for PaintBrush<'a> {
+    fn into(self) -> tiny_skia::Paint<'a> {
+        self.0
+    }
+}
+
+impl<'a> PaintBrush<'a> {
+    pub fn with_opacity(mut self, opacity: f32) -> Self {
+        self.as_paint_mut().shader.apply_opacity(opacity);
+        self
+    }
+
+    #[inline]
+    pub fn with_blend(mut self, blend_mode: tiny_skia::BlendMode) -> Self {
+        self.as_paint_mut().blend_mode = blend_mode;
+        self
+    }
+
+    #[inline]
+    pub fn as_paint_mut(&mut self) -> &mut tiny_skia::Paint<'a> {
+        &mut self.0
+    }
+
+    #[inline]
+    pub fn as_paint(&self) -> &tiny_skia::Paint<'a> {
+        &self.0
     }
 }
 /// Tiny Skia cache to save rendering allocations
@@ -87,17 +114,11 @@ impl<'c> CanvasContext<'c> {
         shape.add_to_path(&mut path, position);
         let final_path = path.finish().expect("Shape invalid");
 
-        let paint = match brush {
-            PaintBrush::Color(pix) => {
-                let mut paint = tiny_skia::Paint::default();
-                paint.set_color_rgba8(pix.r(), pix.g(), pix.b(), pix.a());
-                paint
-            }
-        };
+        let paint = brush.as_paint();
 
         self.pixmap.fill_path(
             &final_path,
-            &paint,
+            paint,
             tiny_skia::FillRule::default(),
             tiny_skia::Transform::identity(),
             None,
@@ -118,19 +139,13 @@ impl<'c> CanvasContext<'c> {
         shape.add_to_path(&mut path, position);
         let final_path = path.finish().expect("Shape invalid");
 
-        let mut paint = tiny_skia::Paint::default();
+        let paint = brush.as_paint();
         let mut stroke = tiny_skia::Stroke::default();
         stroke.width = stroke_width;
 
-        match brush {
-            PaintBrush::Color(pix) => {
-                paint.set_color_rgba8(pix.r(), pix.g(), pix.b(), pix.a());
-            }
-        };
-
         self.pixmap.stroke_path(
             &final_path,
-            &paint,
+            paint,
             &stroke,
             tiny_skia::Transform::identity(),
             None,
@@ -141,12 +156,20 @@ impl<'c> CanvasContext<'c> {
 
     #[inline]
     pub fn draw_text(&mut self, position: Point, brush: &PaintBrush, text: &cosmic_text::Buffer) {
-        let mut paint = tiny_skia::Paint::default();
         let cosmic_color;
-
-        match brush {
-            PaintBrush::Color(color) => {
-                cosmic_color = cosmic_text::Color::rgba(color.r(), color.g(), color.b(), color.a());
+        let mut paint: tiny_skia::Paint<'_> = brush.clone().into();
+        match &paint.shader {
+            tiny_skia::Shader::SolidColor(color) => {
+                let color = color.to_color_u8();
+                cosmic_color = cosmic_text::Color::rgba(
+                    color.red(),
+                    color.green(),
+                    color.blue(),
+                    color.alpha(),
+                );
+            }
+            c => {
+                todo!("{c:?} text coloring not yet implemented");
             }
         }
 
@@ -179,28 +202,13 @@ impl<'c> CanvasContext<'c> {
         );
     }
     #[inline]
-    pub fn clear(&mut self, brush: &PaintBrush, position: Point, area: BoundingRect) {
-        match brush {
-            PaintBrush::Color(pix) => {
-                let color = tiny_skia::Color::from_rgba8(pix.r(), pix.g(), pix.b(), pix.a())
-                    .premultiply()
-                    .to_color_u8();
-                let pix_width = self.pixmap.width();
-                let pix_height = self.pixmap.height();
-
-                let x = (position.x().floor().max(0.) as u32).min(pix_width);
-                let y = (position.y().floor().max(0.) as u32).min(pix_height);
-
-                let width = (area.width().ceil().clamp(0., f32::MAX) as u32).min(pix_width - x);
-                let height = (area.height().ceil().clamp(0., f32::MAX) as u32).min(pix_height - y);
-
-                let pixels = self.pixmap.pixels_mut();
-                for y in y..(y + height) {
-                    let start = (y * pix_width) + x;
-                    let end = start + width;
-                    pixels[start as usize..end as usize].fill(color);
-                }
-            }
-        };
+    pub fn clear(&mut self, brush: PaintBrush, position: Point, area: BoundingRect) {
+        self.pixmap.fill_rect(
+            tiny_skia::Rect::from_xywh(position.x(), position.y(), area.width(), area.height())
+                .expect("Failed to construct rect"),
+            brush.with_blend(tiny_skia::BlendMode::Source).as_paint(),
+            tiny_skia::Transform::default(),
+            None,
+        );
     }
 }

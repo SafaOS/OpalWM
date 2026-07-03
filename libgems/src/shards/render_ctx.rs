@@ -113,7 +113,7 @@ impl<'s, 'c> RenderCtx<'s, 'c> {
 
     /// Fills the given area with background (brush paint) as by clearing it.
     #[inline]
-    pub fn clear(&mut self, brush: &PaintBrush, area: BoundingRect) {
+    pub fn clear(&mut self, brush: PaintBrush, area: BoundingRect) {
         self.canvas.clear(brush, self.origin, area);
     }
 
