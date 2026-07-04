@@ -48,12 +48,19 @@ pub fn _write_to_serial(args: Arguments) {
         .write_fmt(args)
         .expect("failed to write to the serial")
 }
+#[macro_export]
+macro_rules! log_serial {
+    ($($arg: tt)*) => {
+         $crate::logging::_write_to_serial(format_args!($($arg)*));
+    };
+}
+pub use log_serial;
 
 /// Generic log something attributing it to OpalWM
 #[macro_export]
 macro_rules! generic_log {
     ($($arg: tt)*) => {{
-        $crate::logging::_write_to_serial(format_args!("[ \x1b[97mOpalWM\x1b[0m ] {}\n", format_args!($($arg)*)));
+        $crate::logging::log_serial!("[ \x1b[97mOpalWM\x1b[0m ] {}\n", format_args!($($arg)*));
         if $crate::logging::terminal_logging_enabled() {
             println!("[ \x1b[97mOpalWM\x1b[0m ] {}", format_args!($($arg)*));
         }

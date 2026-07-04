@@ -357,7 +357,9 @@ impl Stream {
         if in_object.data_ptr().len() <= samples_size / (format.bit_depth() as usize / 8) {
             return Err(());
         }
-        log!("Create stream, samples size: {samples_size}, debug value: {debug}");
+        log!(
+            "Create stream, samples size: {samples_size}, format: {format:#?}, debug value: {debug}"
+        );
         Ok(Self {
             stream_id: 0,
             source_format: format,

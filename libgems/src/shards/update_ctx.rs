@@ -3,43 +3,32 @@ use crate::{
     shards::{DamageArea, ShardLayout, ShardState},
 };
 
-/// Represents a LifeCycle event to the widgets internal state or any changes that isn't picked by [`super::ShardEvent`].
-#[derive(Debug, Clone, Copy)]
-#[non_exhaustive]
-pub enum LifeCycle<'a> {
-    /// The initial LifeCycle when a Widget is added.
-    Init {
-        window_title: &'a str,
-    },
-    WindowMetaChanged {
-        title: &'a str,
-    },
-    /// Generated If the hot status (hover status) of the widget changed.
-    HotChanged(bool),
-    /// Generated If the disabled status of the widget changed by an outsider.
-    DisabledChanged(bool),
-}
-
 #[derive(Debug)]
-pub struct LifeCycleCtx<'a> {
+pub struct UpdateCtx<'a> {
     state: &'a mut ShardState,
-    layout: Option<(Point, &'a ShardLayout)>,
+    origin: Point,
+    layout: &'a ShardLayout,
     damage: &'a mut DamageArea,
 }
 
-impl<'a> LifeCycleCtx<'a> {
+impl<'a> UpdateCtx<'a> {
     pub(crate) fn new(
+        origin: Point,
         state: &'a mut ShardState,
-        layout: Option<(Point, &'a ShardLayout)>,
+        layout: &'a ShardLayout,
         damage: &'a mut DamageArea,
     ) -> Self {
         Self {
+            origin,
             state,
             layout,
             damage,
         }
     }
 
+    pub fn origin(&self) -> Point {
+        self.origin
+    }
     /// Sets the active state of the shard.
     /// (eg. button is pressed).
     pub fn set_active(&mut self, active: bool) {
@@ -68,9 +57,7 @@ impl<'a> LifeCycleCtx<'a> {
     }
 
     pub fn request_redraw(&mut self) {
-        if let Some((_, layout)) = self.layout.as_ref() {
-            self.request_redraw_at(Point::new(0., 0.), layout.full_bounds());
-        }
+        self.request_redraw_at(Point::new(0., 0.), self.layout.full_bounds());
     }
 
     pub fn damage_area(&mut self) -> &mut DamageArea {
@@ -78,8 +65,6 @@ impl<'a> LifeCycleCtx<'a> {
     }
 
     pub fn request_redraw_at(&mut self, at: Point, area: BoundingRect) {
-        if let Some((origin, _)) = self.layout.as_ref() {
-            self.damage.request_redraw_at(at + *origin, area);
-        }
+        self.damage.request_redraw_at(at + self.origin, area);
     }
 }

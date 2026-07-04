@@ -1,6 +1,6 @@
 use crate::{
-    Point,
-    shards::{ShardLayout, ShardState},
+    BoundingRect, Point,
+    shards::{DamageArea, ShardLayout, ShardState},
 };
 
 /// Represents an event context within a window.
@@ -10,6 +10,7 @@ pub struct MsgCtx<'a> {
     shard_state: &'a mut ShardState,
     shard_layout: &'a ShardLayout,
     requested_removal: bool,
+    damage: &'a mut DamageArea,
 }
 
 impl<'a> MsgCtx<'a> {
@@ -17,12 +18,14 @@ impl<'a> MsgCtx<'a> {
         origin: Point,
         shard_state: &'a mut ShardState,
         shard_layout: &'a ShardLayout,
+        damage: &'a mut DamageArea,
     ) -> Self {
         Self {
             origin,
             shard_state,
             shard_layout,
             requested_removal: false,
+            damage,
         }
     }
 
@@ -45,6 +48,18 @@ impl<'a> MsgCtx<'a> {
 
     pub fn request_remove(&mut self) {
         self.requested_removal = true;
+    }
+
+    pub fn request_redraw(&mut self) {
+        self.request_redraw_at(Point::new(0., 0.), self.layout().full_bounds());
+    }
+
+    pub fn damage_area(&mut self) -> &mut DamageArea {
+        self.damage
+    }
+
+    pub fn request_redraw_at(&mut self, at: Point, area: BoundingRect) {
+        self.damage.request_redraw_at(at + self.origin(), area);
     }
 
     pub fn requested_remove(&self) -> bool {

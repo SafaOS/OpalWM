@@ -1,5 +1,6 @@
+use crate::BoundingRect;
 use crate::render::Point;
-use crate::shards::{ShardLayout, ShardState};
+use crate::shards::{DamageArea, ShardLayout, ShardState};
 use libopal::defs::KeyModifiers;
 use libopal::event::WindowEvent as OpalEvent;
 use libopal::{defs::HeldMouseButtons, event::KeyCode};
@@ -53,6 +54,7 @@ pub struct EventCtx<'a> {
     shard_origin: Point,
     shard_layout: &'a ShardLayout,
     requested_removal: bool,
+    damage: &'a mut DamageArea,
 }
 
 impl<'a> EventCtx<'a> {
@@ -61,6 +63,7 @@ impl<'a> EventCtx<'a> {
         origin: Option<Point>,
         shard_state: &'a mut ShardState,
         shard_layout: &'a ShardLayout,
+        damage: &'a mut DamageArea,
     ) -> Self {
         Self {
             event_origin: origin,
@@ -68,6 +71,7 @@ impl<'a> EventCtx<'a> {
             shard_origin,
             shard_layout,
             requested_removal: false,
+            damage,
         }
     }
 
@@ -104,6 +108,18 @@ impl<'a> EventCtx<'a> {
 
     pub fn requested_remove(&self) -> bool {
         self.requested_removal
+    }
+
+    pub fn request_redraw(&mut self) {
+        self.request_redraw_at(Point::new(0., 0.), self.layout().full_bounds());
+    }
+
+    pub fn damage_area(&mut self) -> &mut DamageArea {
+        self.damage
+    }
+
+    pub fn request_redraw_at(&mut self, at: Point, area: BoundingRect) {
+        self.damage.request_redraw_at(at + self.shard_origin, area);
     }
 
     /// Returns whether the shard is currently active. (eg. button is pressed).

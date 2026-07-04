@@ -44,6 +44,12 @@ impl<'a> PaintBrush<'a> {
     }
 
     #[inline]
+    pub fn no_aa(mut self) -> Self {
+        self.as_paint_mut().anti_alias = false;
+        self
+    }
+
+    #[inline]
     pub fn as_paint_mut(&mut self) -> &mut tiny_skia::Paint<'a> {
         &mut self.0
     }

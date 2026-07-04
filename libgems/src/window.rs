@@ -8,7 +8,10 @@ use libopal::{
 use crate::{
     Data, EventCtx, Padding,
     render::{BoundingConstraints, BoundingRect, CanvasCache, PaintBrush, Point},
-    shards::{Button, Label, LayoutCtx, Shard, ShardNode, ShardsExt, Stack, lifecycle::LifeCycle},
+    shards::{
+        Button, DamageArea, Label, LayoutCtx, Shard, ShardNode, ShardsExt, Stack,
+        lifecycle::LifeCycle,
+    },
     theme,
 };
 
@@ -140,8 +143,10 @@ impl<'a> WindowBuilder<'a> {
 pub struct Window<State: 'static = (), Message: 'static = ()> {
     root: ShardNode<State, Message>,
     cache: CanvasCache,
-    inner: libopal::window::Window,
     mouse_position: Option<Point>,
+    inner: libopal::window::Window,
+    damage: DamageArea,
+    pixmap: tiny_skia::Pixmap,
     mouse_button_state: HeldMouseButtons,
 }
 
@@ -152,9 +157,10 @@ impl<State, Message> Window<State, Message> {
                 title: title.as_ref(),
             },
             data,
+            &mut self.damage,
         );
 
-        self.try_redraw(data);
+        self.redraw_damage(data);
     }
 
     pub const fn inner_mut(&mut self) -> &mut libopal::window::Window {
@@ -175,6 +181,7 @@ impl<State, Message> Window<State, Message> {
         let (root_layout, _) = self.root.layout(&mut LayoutCtx {
             font_system: self.cache.font_system(),
             constraints,
+            damage: &mut self.damage,
         });
 
         let occupied_height = root_layout.full_bounds().height().ceil() as u32;
@@ -273,14 +280,26 @@ impl<State, Message> Window<State, Message> {
             cache: CanvasCache::new(),
             mouse_position: None,
             mouse_button_state: HeldMouseButtons::empty(),
+            pixmap: tiny_skia::Pixmap::new(inner.width(), inner.height())
+                .expect("Failed to construct Window bad height and width"),
+
+            damage: DamageArea::new(Some((
+                Point::default(),
+                BoundingRect::new(inner.width() as f32, inner.height() as f32),
+            ))),
             inner,
         };
+
+        this.root.plot_at(Point::default());
         this.root.route_lifecycle(
             &crate::shards::lifecycle::LifeCycle::Init {
                 window_title: title,
             },
             data,
+            &mut this.damage,
         );
+
+        this.redraw_damage(data);
         this
     }
 
@@ -288,9 +307,7 @@ impl<State, Message> Window<State, Message> {
     ///
     /// Damaging is the act of requesting redraw from the WM.
     pub fn damage(&mut self, at: Point, area: BoundingRect) {
-        let Some(pixmap) = self.root.shard.cache_mut() else {
-            return;
-        };
+        let pixmap = &self.pixmap;
 
         let damage_x = at.x().ceil() as i32;
         let damage_y = at.y().ceil() as i32;
@@ -312,7 +329,7 @@ impl<State, Message> Window<State, Message> {
         let win_height = self.inner.height();
         let pix_height = pixmap.height();
 
-        let real_pixels = pixmap.pixels_mut();
+        let real_pixels = pixmap.pixels();
         let win_pixels = self.inner.pixels_mut();
 
         let damage_y = damage_y as u32;
@@ -333,9 +350,9 @@ impl<State, Message> Window<State, Message> {
             let start_index = ((row * pix_width) + damage_x) as usize;
             let end_index = (start_index + damage_w as usize) as usize;
 
-            let real_pixs = &mut real_pixels[start_index..end_index];
+            let real_pixs = &real_pixels[start_index..end_index];
             let win_pixs = &mut win_pixels[start_index..end_index];
-            for (r_pix, win_pix) in real_pixs.iter_mut().zip(win_pixs.iter_mut()) {
+            for (r_pix, win_pix) in real_pixs.iter().zip(win_pixs.iter_mut()) {
                 *win_pix = Pixel::rgba(r_pix.red(), r_pix.green(), r_pix.blue(), r_pix.alpha());
             }
         }
@@ -352,42 +369,66 @@ impl<State, Message> Window<State, Message> {
         BoundingConstraints::from_max(self.bounds())
     }
 
-    /// Broadcast's a message to the window's elements.
-    pub fn broadcast_message(&mut self, state: &mut Data<State, Message>, msg: &Message) {
+    fn ensure_layout(&mut self, not_render: bool) {
         let constraints = self.constraints();
-        self.root.layout_if_none(&mut LayoutCtx {
-            font_system: self.cache.font_system(),
-            constraints,
-        });
-        self.root.route_message(Point::default(), state, msg);
+        let is_new = if not_render {
+            self.root
+                .layout_if_none(&mut LayoutCtx {
+                    font_system: self.cache.font_system(),
+                    constraints,
+                    damage: &mut self.damage,
+                })
+                .1
+        } else {
+            if self.root.should_relayout() {
+                let constraints = self.constraints();
+                self.root.layout(&mut LayoutCtx {
+                    font_system: self.cache.font_system(),
+                    constraints,
+                    damage: &mut self.damage,
+                });
+
+                true
+            } else {
+                false
+            }
+        };
+
+        if is_new {
+            self.root.collect_damage(Point::default(), &mut self.damage);
+        }
     }
 
-    pub fn update_ctx(&mut self, app_state: &Data<State, Message>) {
-        let constraints = self.constraints();
-        self.root.layout_if_none(&mut LayoutCtx {
-            font_system: self.cache.font_system(),
-            constraints,
-        });
-        self.root.on_ctx_update(app_state);
+    /// Broadcast's a message to the window's elements.
+    pub fn broadcast_message(&mut self, data: &mut Data<State, Message>, msg: &Message) {
+        self.ensure_layout(true);
+        self.root
+            .route_message(Point::default(), data, msg, &mut self.damage);
+        self.redraw_damage(data);
+    }
+
+    pub fn update_ctx(&mut self, data: &Data<State, Message>) {
+        self.ensure_layout(true);
+        self.root
+            .on_ctx_update(Point::default(), &mut self.damage, data);
+        self.redraw_damage(data);
     }
 
     /// Broadcast's an event to the window's elements.
-    pub fn broadcast_event(&mut self, app_state: &mut Data<State, Message>, event: WindowEvent) {
-        let constraints = self.constraints();
-        self.root.layout_if_none(&mut LayoutCtx {
-            font_system: self.cache.font_system(),
-            constraints,
-        });
+    pub fn broadcast_event(&mut self, data: &mut Data<State, Message>, event: WindowEvent) {
+        self.ensure_layout(true);
         EventCtx::with_event(
             &mut self.mouse_button_state,
             &mut self.mouse_position,
             &event,
             |eve_origin, event| {
                 self.root
-                    .route_event(Point::default(), eve_origin, &event, app_state);
+                    .route_event(Point::default(), eve_origin, &event, data, &mut self.damage);
             },
         );
-        self.root.on_ctx_update(app_state);
+        self.root
+            .on_ctx_update(Point::default(), &mut self.damage, data);
+        self.redraw_damage(data);
     }
 
     /// Returns wetheher or not the window has to be redrawn using [`Self::redraw`].
@@ -396,34 +437,48 @@ impl<State, Message> Window<State, Message> {
         self.root.is_dirty()
     }
 
-    /// Re-renders the window even if it isn't dirty, may be costy.
-    pub fn redraw(&mut self, data: &Data<State, Message>) {
-        if self.root.should_relayout() {
-            let constraints = self.constraints();
-            self.root.layout(&mut LayoutCtx {
-                font_system: self.cache.font_system(),
-                constraints,
-            });
-        }
-
-        match self.root.render_as_root(&mut self.cache, data) {
-            None => {
-                self.damage(Point::new(0., 0.), self.bounds());
-            }
-            Some((point, area)) => {
-                self.damage(point, area);
-            }
+    pub fn redraw_damage(&mut self, data: &Data<State, Message>) {
+        self.ensure_layout(false);
+        if let Some((point, area)) = self.damage.damage() {
+            self.root.render_as_root(
+                &mut self.cache,
+                self.pixmap.as_mut(),
+                &mut self.damage,
+                data,
+            );
+            self.damage = DamageArea::new(None);
+            self.damage(point, area);
         }
     }
 
-    /// Attempts to render window if it is [`Self::dirty`], returning wetheher or not it was changed.
-    #[inline(always)]
-    pub fn try_redraw(&mut self, data: &Data<State, Message>) -> bool {
-        if self.dirty() {
-            self.redraw(data);
-            true
-        } else {
-            false
-        }
-    }
+    // /// Re-renders the window even if it isn't dirty, may be costy.
+    // pub fn redraw(&mut self, data: &Data<State, Message>) {
+    //     if self.root.should_relayout() {
+    //         let constraints = self.constraints();
+    //         self.root.layout(&mut LayoutCtx {
+    //             font_system: self.cache.font_system(),
+    //             constraints,
+    //         });
+    //     }
+
+    //     match self.root.render_as_root(&mut self.cache, data) {
+    //         None => {
+    //             self.damage(Point::new(0., 0.), self.bounds());
+    //         }
+    //         Some((point, area)) => {
+    //             self.damage(point, area);
+    //         }
+    //     }
+    // }
+
+    // /// Attempts to render window if it is [`Self::dirty`], returning wetheher or not it was changed.
+    // #[inline(always)]
+    // pub fn try_redraw(&mut self, data: &Data<State, Message>) -> bool {
+    //     if self.dirty() {
+    //         self.redraw(data);
+    //         true
+    //     } else {
+    //         false
+    //     }
+    // }
 }

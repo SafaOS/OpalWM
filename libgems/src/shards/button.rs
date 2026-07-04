@@ -48,13 +48,13 @@ impl<T, M> Shard<T, M> for Button<T, M> {
 
     fn lifecycle(
         &mut self,
-        _: &mut super::lifecycle::LifeCycleCtx,
+        ctx: &mut super::lifecycle::LifeCycleCtx,
         event: &LifeCycle,
         _: &Data<T, M>,
     ) {
         match event {
             LifeCycle::Init { .. } => {}
-            LifeCycle::HotChanged(_) => self.dirty = true,
+            LifeCycle::HotChanged(_) => ctx.request_redraw(),
             _ => {}
         }
     }
@@ -80,30 +80,21 @@ impl<T, M> Shard<T, M> for Button<T, M> {
         super::ShardLayout::from_bounds(BoundingRect::new(w, h))
     }
 
-    fn on_event(
-        &mut self,
-        event_ctx: &mut EventCtx,
-        event: &ShardEvent,
-        _app_ctx: &mut Data<T, M>,
-    ) {
+    fn on_event(&mut self, ctx: &mut EventCtx, event: &ShardEvent, _app_ctx: &mut Data<T, M>) {
         match event {
             ShardEvent::MouseClick(_) => {
-                event_ctx.set_active(true);
-                self.dirty = true;
+                ctx.set_active(true);
+                ctx.request_redraw();
             }
             ShardEvent::MouseRelease(_) => {
-                event_ctx.set_active(false);
-                self.dirty = true;
+                ctx.set_active(false);
+                ctx.request_redraw();
             }
             _ => {}
         }
     }
 
-    fn render(
-        &mut self,
-        ctx: &mut RenderCtx,
-        data: &Data<T, M>,
-    ) -> Option<(crate::Point, BoundingRect)> {
+    fn render(&mut self, ctx: &mut RenderCtx, data: &Data<T, M>) {
         let layout = ctx.layout();
         let is_active = ctx.is_active();
         let is_hot = ctx.is_hot();
@@ -129,6 +120,5 @@ impl<T, M> Shard<T, M> for Button<T, M> {
             ctx.fill(&overlay_paint, &Rect::new_rect(w, h).round(self.radius));
         }
         self.dirty = false;
-        None
     }
 }

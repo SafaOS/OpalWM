@@ -130,19 +130,12 @@ impl<State, Message> App<State, Message> {
         self.windows.iter().any(|w| w.dirty())
     }
 
-    /// Redraws all windows that needs to be redrawn.
-    pub fn redraw_needed(&mut self) {
-        for win in &mut self.windows {
-            if win.dirty() {
-                win.redraw(&self.core);
-            }
-        }
-    }
-
-    /// Redraws all windows.
-    pub fn redraw_all(&mut self) {
-        for win in &mut self.windows {
-            win.redraw(&self.core);
+    /// Notifies all windows of data update.
+    ///
+    /// If your app isn't just event driven and needs to do things every tick you can call this every tick or if app data was changed from outside a widget.
+    pub fn update(&mut self) {
+        for w in &mut self.windows {
+            w.update_ctx(&self.core);
         }
     }
 

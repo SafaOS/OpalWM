@@ -3,7 +3,7 @@ use cosmic_text::FontSystem;
 use crate::{
     BoundingRect, Point,
     render::{CanvasContext, PaintBrush, Shape},
-    shards::{ShardLayout, ShardState},
+    shards::{DamageArea, ShardLayout, ShardState},
 };
 
 /// Render context for a rendering operation.
@@ -15,6 +15,7 @@ pub struct RenderCtx<'s, 'c> {
     canvas: &'s mut CanvasContext<'c>,
     pub(crate) state: &'s ShardState,
     layout: &'s ShardLayout,
+    damage: &'s mut DamageArea,
 }
 
 impl<'s, 'c> RenderCtx<'s, 'c> {
@@ -24,23 +25,25 @@ impl<'s, 'c> RenderCtx<'s, 'c> {
         canvas: &'c mut CanvasContext<'c>,
         state: &'s ShardState,
         layout: &'s ShardLayout,
+        damage: &'s mut DamageArea,
     ) -> Self {
         Self {
             origin,
             canvas,
             state,
             layout,
+            damage,
         }
     }
     #[inline]
-    pub fn move_to(&mut self, origin: Point) -> &mut Self {
+    pub fn move_to_abs(&mut self, origin: Point) -> &mut Self {
         self.origin = origin;
         self
     }
 
     #[inline]
-    pub fn move_by(&mut self, relative: Point) -> &mut Self {
-        self.move_to(self.origin + relative)
+    pub fn move_to(&mut self, relative: Point) -> &mut Self {
+        self.move_to_abs(self.origin + relative)
     }
 
     #[inline]
@@ -55,6 +58,7 @@ impl<'s, 'c> RenderCtx<'s, 'c> {
             origin: self.origin,
             canvas: self.canvas,
             state: state,
+            damage: self.damage,
         };
 
         f(&mut ctx)
@@ -72,6 +76,7 @@ impl<'s, 'c> RenderCtx<'s, 'c> {
             canvas: &mut ctx,
             state: self.state,
             layout: self.layout,
+            damage: self.damage,
         };
         f(&mut ctx)
     }
@@ -90,6 +95,7 @@ impl<'s, 'c> RenderCtx<'s, 'c> {
             canvas: self.canvas,
             state: self.state,
             layout: self.layout,
+            damage: self.damage,
         };
         f(&mut ctx)
     }
@@ -151,6 +157,11 @@ impl<'s, 'c> RenderCtx<'s, 'c> {
     #[inline(always)]
     pub fn layout(&self) -> &ShardLayout {
         self.layout
+    }
+
+    #[inline(always)]
+    pub fn damage(&mut self) -> &mut DamageArea {
+        self.damage
     }
 
     #[inline(always)]

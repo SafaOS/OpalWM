@@ -1,7 +1,10 @@
 use crate::{
     Data, EventCtx, ShardEvent,
-    render::{BoundingConstraints, BoundingRect, Padding, Point, Vec2},
-    shards::{AxisAlign, MsgCtx, RenderCtx, Shard, ShardLayout, ShardNode, lifecycle::LifeCycle},
+    render::{BoundingConstraints, BoundingRect, Padding, Point},
+    shards::{
+        AxisAlign, MsgCtx, RenderCtx, Shard, ShardLayout, ShardNode, UpdateCtx,
+        lifecycle::LifeCycle,
+    },
 };
 
 /// Describes the stack direction, horizontal or vertical.
@@ -99,6 +102,7 @@ pub struct Stack<S = (), M = ()> {
     elements: Vec<Element<S, M>>,
     dirty: bool,
     layout_changed: bool,
+    should_relayout: bool,
     cursor_at: Option<Point>,
     last_constraints: BoundingConstraints,
     size: BoundingRect,
@@ -113,6 +117,7 @@ impl<T, M> Stack<T, M> {
             padding: Padding::equal(3.),
             justify_content: Justify::default(),
             layout_changed: true,
+            should_relayout: false,
             dirty: true,
             cursor_at: None,
             size: BoundingRect::default(),
@@ -208,12 +213,16 @@ impl<S, M> Shard<S, M> for Stack<S, M> {
         self.layout_changed || self.dirty
     }
     fn should_relayout(&self) -> bool {
-        self.layout_changed
+        self.layout_changed || self.should_relayout
+    }
+
+    fn with_children(&mut self, f: &mut dyn FnMut(&mut dyn Iterator<Item = &mut ShardNode<S, M>>)) {
+        f(&mut self.elements.iter_mut().filter_map(|e| e.node_mut()))
     }
 
     fn lifecycle(
         &mut self,
-        _: &mut super::lifecycle::LifeCycleCtx,
+        ctx: &mut super::lifecycle::LifeCycleCtx,
         event: &LifeCycle,
         data: &Data<S, M>,
     ) {
@@ -221,13 +230,13 @@ impl<S, M> Shard<S, M> for Stack<S, M> {
             LifeCycle::Init { .. } | LifeCycle::WindowMetaChanged { .. } => {
                 for ele in &mut self.elements {
                     if let Some(node) = ele.node_mut() {
-                        node.route_lifecycle(event, data);
+                        node.route_lifecycle(event, data, ctx.damage_area());
                         self.dirty |= node.is_dirty();
-                        self.layout_changed |= node.should_relayout();
+                        self.should_relayout |= node.should_relayout();
                     }
                 }
             }
-            _ => {}
+            LifeCycle::DisabledChanged(_) | LifeCycle::HotChanged(_) => {}
         }
     }
 
@@ -450,7 +459,10 @@ impl<S, M> Shard<S, M> for Stack<S, M> {
 
                 curr_pos += ele_skip + self.direction.skip(gap);
             }
+
+            ctx.request_redraw(&stack_layout);
         }
+        self.should_relayout = false;
         stack_layout
     }
 
@@ -466,11 +478,14 @@ impl<S, M> Shard<S, M> for Stack<S, M> {
                     event_ctx.event_origin(),
                     event,
                     data,
+                    event_ctx.damage_area(),
                 );
                 let requested_remove = eve_ctx.is_some_and(|r| r.requested_remove());
 
                 self.dirty |= node.is_dirty();
-                self.layout_changed |= node.should_relayout() | requested_remove;
+                self.should_relayout |= node.should_relayout();
+                self.layout_changed |= requested_remove;
+
                 !requested_remove
             } else {
                 true
@@ -478,11 +493,11 @@ impl<S, M> Shard<S, M> for Stack<S, M> {
         });
     }
 
-    fn on_ctx_update(&mut self, context: &Data<S, M>) {
+    fn on_ctx_update(&mut self, ctx: &mut UpdateCtx, context: &Data<S, M>) {
         for node in self.elements.iter_mut().filter_map(|e| e.node_mut()) {
-            node.on_ctx_update(context);
+            node.on_ctx_update(ctx.origin(), ctx.damage_area(), context);
             self.dirty |= node.is_dirty();
-            self.layout_changed |= node.should_relayout();
+            self.should_relayout |= node.should_relayout();
         }
     }
 
@@ -492,83 +507,46 @@ impl<S, M> Shard<S, M> for Stack<S, M> {
                 return true;
             };
 
-            let Some(n_ctx) = node.route_message(ctx.origin(), data, message) else {
+            let Some(n_ctx) = node.route_message(ctx.origin(), data, message, ctx.damage_area())
+            else {
                 self.layout_changed = true;
                 return true;
             };
             let requested_remove = n_ctx.requested_remove();
 
             self.dirty |= node.is_dirty();
-            self.layout_changed |= node.should_relayout() | requested_remove;
+            self.should_relayout |= node.should_relayout();
+            self.layout_changed |= requested_remove;
             !requested_remove
         });
     }
 
-    fn render(&mut self, ctx: &mut RenderCtx, data: &Data<S, M>) -> Option<(Point, BoundingRect)> {
-        let mut results: Option<(Point, BoundingRect)>;
+    fn render(&mut self, ctx: &mut RenderCtx, data: &Data<S, M>) {
+        let stack_origin = ctx.origin();
+        let damage = *ctx.damage();
         let mut new_dirty = false;
         let mut new_relayout = false;
 
-        if core::mem::replace(&mut self.layout_changed, false) {
-            for node in self.elements.iter_mut().filter_map(|e| e.node_mut()) {
-                node.render(ctx, true, self.cursor_at, data);
-                new_dirty |= node.is_dirty();
-                new_relayout |= node.should_relayout();
+        let layout_changed = core::mem::take(&mut self.layout_changed);
+        for node in self.elements.iter_mut().filter_map(|e| e.node_mut()) {
+            let origin = node
+                .origin
+                .expect("Attempt to render node without a position")
+                + stack_origin;
+            let area = node
+                .layout_ref()
+                .expect("Attempt to render node without a layout")
+                .full_bounds();
+
+            if let Some((_, _)) = damage.intersection_with(origin, area) {
+                node.render(ctx, layout_changed, self.cursor_at, data);
             }
 
-            results = None;
-        } else {
-            results = None;
-
-            for node in self.elements.iter_mut().filter_map(|e| e.node_mut()) {
-                if node.is_dirty() {
-                    // Render and calculate damage
-                    let ele_abs_pos = node.position();
-
-                    let layout = *node
-                        .layout_ref()
-                        .expect("Attempt to render before laying out elements");
-
-                    let render_results = node.render(ctx, false, self.cursor_at, data);
-
-                    let render_pos = render_results
-                        .map(|(p, _)| p + ele_abs_pos)
-                        .unwrap_or(ele_abs_pos);
-                    let render_rect = render_results
-                        .map(|(_, v)| v)
-                        .unwrap_or(layout.full_bounds());
-
-                    if let Some((d_pos, d_rect)) = results.as_mut()
-                        && *d_rect != BoundingRect::new(0., 0.)
-                    {
-                        let d_last_x = d_pos.x() + d_rect.width();
-                        let d_last_y = d_pos.y() + d_rect.height();
-
-                        let x = d_pos.x().min(render_pos.x());
-                        let y = d_pos.y().min(render_pos.y());
-                        let w = d_last_x.max(render_pos.x() + render_rect.width()) - x;
-                        let h = d_last_y.max(render_pos.y() + render_rect.height()) - y;
-
-                        *d_pos = Point::new(x, y);
-                        *d_rect = BoundingRect::new(w, h);
-                    } else {
-                        results = Some((render_pos, render_rect));
-                    }
-                } else {
-                    // Render only
-                    node.render(ctx, false, self.cursor_at, data);
-                }
-
-                if results.is_none() {
-                    results = Some((Vec2::new(f32::MAX, f32::MAX), BoundingRect::new(0., 0.)));
-                }
-                new_dirty |= node.is_dirty();
-                new_relayout |= node.should_relayout();
-            }
+            new_dirty |= node.is_dirty();
+            new_relayout |= node.should_relayout();
         }
 
         self.dirty = new_dirty;
-        self.layout_changed = new_relayout;
-        results
+        self.should_relayout = new_relayout;
     }
 }

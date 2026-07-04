@@ -13,6 +13,7 @@ pub struct Label<S, M = ()> {
     text_changed: bool,
     paint: Option<PaintBrush<'static>>,
     attrs: Attrs<'static>,
+    align: Option<cosmic_text::Align>,
     center: bool,
     _ctx: PhantomData<(S, M)>,
 }
@@ -27,6 +28,7 @@ impl<S, M> Label<S, M> {
             text_changed: true,
             paint: None,
             attrs: Attrs::new(),
+            align: None,
             center: false,
             _ctx: PhantomData,
         }
@@ -65,6 +67,13 @@ impl<S, M> Label<S, M> {
     pub fn with_metrics(mut self, metrics: Metrics) -> Self {
         self.buffer = Buffer::new_empty(metrics);
         self.text_changed = true;
+        self
+    }
+
+    #[inline]
+    pub fn with_align(mut self, align: cosmic_text::Align) -> Self {
+        self.text_changed = true;
+        self.align = Some(align);
         self
     }
 
@@ -120,13 +129,14 @@ impl<S, M> Shard<S, M> for Label<S, M> {
                 &self.text,
                 &self.attrs,
                 cosmic_text::Shaping::Advanced,
-                None,
+                self.align,
             );
 
             self.text_changed = false;
         }
 
         buffer.set_wrap(ctx.font_system(), self.wrap);
+
         buffer.set_size(
             ctx.font_system(),
             width.is_finite().then_some(width),
@@ -137,14 +147,13 @@ impl<S, M> Shard<S, M> for Label<S, M> {
         let act_width = self.width().max(min_box.width());
         let act_height = self.height().max(min_box.height());
 
-        super::ShardLayout::from_bounds(BoundingRect::new(act_width, act_height))
+        super::ShardLayout {
+            bounds: BoundingRect::new(act_width, act_height),
+            ..Default::default()
+        }
     }
 
-    fn render(
-        &mut self,
-        ctx: &mut super::RenderCtx,
-        data: &Data<S, M>,
-    ) -> Option<(crate::Point, crate::BoundingRect)> {
+    fn render(&mut self, ctx: &mut super::RenderCtx, data: &Data<S, M>) {
         let bounds = ctx.layout().bounds;
 
         let r_w = bounds.width();
@@ -166,6 +175,5 @@ impl<S, M> Shard<S, M> for Label<S, M> {
             ctx.fill_text(paint, &self.buffer);
         });
         self.buffer.set_redraw(false);
-        None
     }
 }

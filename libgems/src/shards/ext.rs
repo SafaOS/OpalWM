@@ -2,8 +2,8 @@ use crate::{
     BoundingRect, Data, EventCtx, Padding, Point, ShardEvent,
     render::{BoundingConstraints, CanvasCache, PaintBrush, shapes::Rect},
     shards::{
-        AxisAlign, LayoutCtx, LifeCycleCtx, MsgCtx, RenderCtx, Shard, ShardLayout, ShardState,
-        lifecycle::LifeCycle,
+        AxisAlign, DamageArea, LayoutCtx, LifeCycleCtx, MsgCtx, RenderCtx, Shard, ShardLayout,
+        ShardNode, ShardState, UpdateCtx, lifecycle::LifeCycle,
     },
 };
 
@@ -20,7 +20,7 @@ trait ExtShard<S, M, Inner: Shard<S, M> + ?Sized> {
         self.inner_mut().layout(ctx)
     }
     #[inline(always)]
-    fn render(&mut self, ctx: &mut RenderCtx, data: &Data<S, M>) -> Option<(Point, BoundingRect)> {
+    fn render(&mut self, ctx: &mut RenderCtx, data: &Data<S, M>) {
         self.inner_mut().render(ctx, data)
     }
     #[inline(always)]
@@ -36,8 +36,12 @@ trait ExtShard<S, M, Inner: Shard<S, M> + ?Sized> {
         self.inner_mut().on_message(ctx, data, message);
     }
     #[inline(always)]
-    fn on_ctx_update(&mut self, context: &Data<S, M>) {
-        self.inner_mut().on_ctx_update(context)
+    fn with_children(&mut self, f: &mut dyn FnMut(&mut dyn Iterator<Item = &mut ShardNode<S, M>>)) {
+        self.inner_mut().with_children(f)
+    }
+    #[inline(always)]
+    fn on_ctx_update(&mut self, update_ctx: &mut UpdateCtx, context: &Data<S, M>) {
+        self.inner_mut().on_ctx_update(update_ctx, context)
     }
     #[inline(always)]
     fn dirty(&self) -> bool {
@@ -63,8 +67,12 @@ macro_rules! ext_impl {
                 <Self as ExtShard<T, M, _>>::layout(self, ctx)
             }
             #[inline(always)]
-            fn on_ctx_update(&mut self, context: &Data<T, M>) {
-                <Self as ExtShard<T, M, _>>::on_ctx_update(self, context)
+            fn on_ctx_update(&mut self, update_ctx: &mut UpdateCtx, context: &Data<T, M>) {
+                <Self as ExtShard<T, M, _>>::on_ctx_update(self, update_ctx, context)
+            }
+            #[inline(always)]
+            fn with_children(&mut self, f: &mut dyn FnMut(&mut dyn Iterator<Item = &mut ShardNode<T, M>>)) {
+                  <Self as ExtShard<T, M, _>>::with_children(self, f)
             }
             #[inline(always)]
             fn on_event(
@@ -89,7 +97,7 @@ macro_rules! ext_impl {
                 <Self as ExtShard<T, M, _>>::on_message(self, ctx, data, message)
             }
             #[inline(always)]
-            fn render(&mut self, ctx: &mut RenderCtx, data: &Data<T, M>) -> Option<(Point, BoundingRect)> {
+            fn render(&mut self, ctx: &mut RenderCtx, data: &Data<T, M>) {
                 <Self as ExtShard<T, M, _>>::render(self, ctx, data)
             }
         }
@@ -334,8 +342,8 @@ impl<T, M, S: Shard<T, M>> ExtShard<T, M, S> for SizePaddedBox<S> {
         a_layout
     }
 
-    fn render(&mut self, ctx: &mut RenderCtx, data: &Data<T, M>) -> Option<(Point, BoundingRect)> {
-        let ctx = ctx.move_by(Point::new(self.padding.left, self.padding.right));
+    fn render(&mut self, ctx: &mut RenderCtx, data: &Data<T, M>) {
+        let ctx = ctx.move_to(Point::new(self.padding.left, self.padding.right));
         self.shard.render(ctx, data)
     }
 }
@@ -442,6 +450,10 @@ impl<T, M, S: Shard<T, M>> ExtShard<T, M, S> for OnClick<T, M, S> {
         match event {
             ShardEvent::MouseRelease(_) => {
                 (self.action)(event_ctx, data, &mut self.shard);
+
+                if self.shard.dirty() {
+                    event_ctx.request_redraw();
+                }
             }
             _ => {}
         }
@@ -468,9 +480,13 @@ impl<T, M, S: Shard<T, M>> ExtShard<T, M, S> for OnUpdate<T, M, S> {
     }
 
     #[inline(always)]
-    fn on_ctx_update(&mut self, context: &Data<T, M>) {
+    fn on_ctx_update(&mut self, update_ctx: &mut UpdateCtx, context: &Data<T, M>) {
         (self.action)(context, &mut self.shard);
-        self.shard.on_ctx_update(context);
+        if self.shard.dirty() {
+            update_ctx.request_redraw();
+        }
+
+        self.shard.on_ctx_update(update_ctx, context);
     }
 }
 
@@ -495,6 +511,9 @@ impl<T, M, S: Shard<T, M>, F: FnMut(&mut LifeCycleCtx, &LifeCycle, &mut S) + 'st
 
     fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, data: &Data<T, M>) {
         (self.action)(ctx, event, &mut self.shard);
+        if self.shard.dirty() {
+            ctx.request_redraw();
+        }
         self.shard.lifecycle(ctx, event, data);
     }
 }
@@ -520,6 +539,9 @@ impl<T, M, S: Shard<T, M>, F: FnMut(&mut MsgCtx, &mut Data<T, M>, &M, &mut S)> E
 
     fn on_message(&mut self, ctx: &mut MsgCtx, data: &mut Data<T, M>, message: &M) {
         (self.action)(ctx, data, message, &mut self.shard);
+        if self.shard.dirty() {
+            ctx.request_redraw();
+        }
         self.shard.on_message(ctx, data, message);
     }
 }
@@ -550,8 +572,8 @@ impl<S: ?Sized> CachedShard<S> {
         layout: &ShardLayout,
         state: &ShardState,
         data: &Data<T, M>,
-    ) -> Option<(Point, BoundingRect)>
-    where
+        damage: &mut DamageArea,
+    ) where
         S: Shard<T, M>,
     {
         let mut is_dirty = self.cache.is_none() || self.shard.dirty() || state.state_changed;
@@ -573,7 +595,6 @@ impl<S: ?Sized> CachedShard<S> {
             is_dirty = true;
         }
 
-        let results;
         if is_dirty {
             cache.fill(tiny_skia::Color::TRANSPARENT);
             let mut canvas_ctx = crate::render::CanvasContext::new(canvas_cache, cache.as_mut());
@@ -582,13 +603,10 @@ impl<S: ?Sized> CachedShard<S> {
                 &mut canvas_ctx,
                 state,
                 layout,
+                damage,
             );
-            results = self.shard.render(&mut ctx, data);
-        } else {
-            results = None;
+            self.shard.render(&mut ctx, data);
         }
-
-        results
     }
 }
 
@@ -601,7 +619,7 @@ impl<T, M, S: Shard<T, M> + ?Sized> ExtShard<T, M, S> for CachedShard<S> {
         &mut self.shard
     }
 
-    fn render(&mut self, ctx: &mut RenderCtx, data: &Data<T, M>) -> Option<(Point, BoundingRect)> {
+    fn render(&mut self, ctx: &mut RenderCtx, data: &Data<T, M>) {
         let mut is_dirty = self.cache.is_none() || self.shard.dirty() || ctx.state_changed();
 
         let layout = ctx.layout();
@@ -623,19 +641,14 @@ impl<T, M, S: Shard<T, M> + ?Sized> ExtShard<T, M, S> for CachedShard<S> {
             is_dirty = true;
         }
 
-        let results;
         if is_dirty {
             cache.fill(tiny_skia::Color::TRANSPARENT);
-            results = ctx.with_pixmap(cache.as_mut(), |ctx| {
-                ctx.move_to(Point::default());
+            ctx.with_pixmap(cache.as_mut(), |ctx| {
+                ctx.move_to_abs(Point::default());
                 self.shard.render(ctx, data)
             });
-        } else {
-            results = None;
         }
-
         ctx.fill_with_pixmap(cache.as_ref());
-        results
     }
 }
 
@@ -680,7 +693,7 @@ impl<T, M, S: Shard<T, M>> ExtShard<T, M, S> for Container<S> {
         &mut self.shard
     }
 
-    fn render(&mut self, ctx: &mut RenderCtx, data: &Data<T, M>) -> Option<(Point, BoundingRect)> {
+    fn render(&mut self, ctx: &mut RenderCtx, data: &Data<T, M>) {
         let bounds = ctx.layout().bounds;
         let shape = Rect::new_rect(bounds.width(), bounds.height()).round(self.radius);
         ctx.fill(&self.background, &shape);
