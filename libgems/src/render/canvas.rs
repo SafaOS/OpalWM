@@ -61,8 +61,8 @@ impl<'a> PaintBrush<'a> {
 }
 /// Tiny Skia cache to save rendering allocations
 pub struct CanvasCache {
-    swash_cache: SwashCache,
-    font_system: FontSystem,
+    pub swash_cache: SwashCache,
+    pub font_system: FontSystem,
     path: PathBuilder,
 }
 

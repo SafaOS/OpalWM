@@ -3,7 +3,7 @@ use std::{
     sync::LazyLock,
 };
 
-use libopal::{DequeuedEvents, defs::WindowID};
+use libopal::{DequeuedEvents, defs::WindowID, safa_abi::poll::PollEntry};
 
 use crate::{AppEnv, Window, WindowDesc, shards::Shard};
 
@@ -139,6 +139,9 @@ impl<State, Message> App<State, Message> {
         }
     }
 
+    pub fn data_mut(&mut self) -> &mut Data<State, Message> {
+        &mut self.core
+    }
     /// Blockingly wait for events and handles them.
     pub fn wait_for_events(&mut self) -> DequeuedEvents {
         self.try_wait_for_events(true).unwrap()
@@ -165,14 +168,22 @@ impl<State, Message> App<State, Message> {
         }
     }
 
-    pub fn try_wait_for_events(&mut self, blocking: bool) -> Option<DequeuedEvents> {
-        let events = if blocking {
-            libopal::dequeue_events_blocking().expect("Failed to dequeue events")
-        } else {
-            libopal::dequeue_events_non_blocking().expect("Failed to dequeue events")?
-        };
+    /// like [`Self::try_handle_events`] but it polls (blocks) for the WM's events queue and
+    /// multiple other supplied user resources, If any of the resources are ready (according to the I/O events you are polling for), this method will return, with the dequeued events if any.
+    pub fn try_handle_events_with_poll(
+        &mut self,
+        entries: &mut [PollEntry],
+    ) -> Option<DequeuedEvents> {
+        let events =
+            libopal::dequeue_events_and_poll(entries).expect("Failed to get current events");
+        if let Some(ref events) = events {
+            self.handle_events_inner(events);
+        }
+        events
+    }
 
-        for event in &*events {
+    fn handle_events_inner(&mut self, events: &DequeuedEvents) {
+        for event in &**events {
             for win in &mut self.windows {
                 if win.win_id() == event.receiver() {
                     win.broadcast_event(&mut self.core, event.event());
@@ -181,7 +192,16 @@ impl<State, Message> App<State, Message> {
                 }
             }
         }
+    }
 
+    pub fn try_wait_for_events(&mut self, blocking: bool) -> Option<DequeuedEvents> {
+        let events = if blocking {
+            libopal::dequeue_events_blocking().expect("Failed to dequeue events")
+        } else {
+            libopal::dequeue_events_non_blocking().expect("Failed to dequeue events")?
+        };
+
+        self.handle_events_inner(&events);
         Some(events)
     }
 }

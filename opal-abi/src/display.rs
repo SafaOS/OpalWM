@@ -66,6 +66,16 @@ impl Pixel {
     }
 
     #[inline(always)]
+    pub const fn rgba_premultiplied(r: u8, g: u8, b: u8, a: u8) -> Self {
+        Self {
+            red: r,
+            green: g,
+            blue: b,
+            alpha: a,
+        }
+    }
+
+    #[inline(always)]
     /// Construct a Pixel from a hex ARGB Color
     pub const fn hex_rgba(argb: u32) -> Self {
         let alpha = (argb >> 24) as u8;

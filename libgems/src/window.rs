@@ -2,6 +2,7 @@ use cosmic_text::Metrics;
 use libopal::{
     WindowEvent,
     defs::{HeldMouseButtons, WindowFlags, WindowID},
+    shm::SharedObject,
     window::Pixel,
 };
 
@@ -43,6 +44,14 @@ impl<'a, Root> WindowDesc<'a, Root> {
             (None, None) => None,
         };
 
+        let icon_id = config.icon.map(|image| {
+            libopal::icon::preload_icon(
+                &mut SharedObject::allocate(image.len())
+                    .expect("Failed to allocate shared object for Icon"),
+                image,
+            )
+            .expect("Failed to preload Icon")
+        });
         Window::new_with_root(
             config.title,
             libopal::window::Window::create(
@@ -51,7 +60,7 @@ impl<'a, Root> WindowDesc<'a, Root> {
                 config.width,
                 height,
                 pos,
-                None,
+                icon_id,
             ),
             config
                 .bg
@@ -79,6 +88,7 @@ pub struct WindowBuilder<'a> {
     bg: Option<PaintBrush<'static>>,
     flags: WindowFlags,
     title: &'a str,
+    icon: Option<&'a [u8]>,
 }
 
 const TITLE_BAR_HEIGHT: u32 = 26;
@@ -86,6 +96,7 @@ impl<'a> WindowBuilder<'a> {
     /// Constructs a WindowBuilder with width and height.
     pub const fn new(width: u32, height: u32) -> Self {
         Self {
+            icon: None,
             width,
             height,
             x: None,
@@ -116,6 +127,14 @@ impl<'a> WindowBuilder<'a> {
         self
     }
 
+    #[inline]
+    /// Sets the icon of the window.
+    ///
+    /// Icon must be BMP.
+    pub fn icon(mut self, data: &'a [u8]) -> Self {
+        self.icon = Some(data);
+        self
+    }
     pub fn x(mut self, x: Option<i32>) -> Self {
         self.x = x;
         self
