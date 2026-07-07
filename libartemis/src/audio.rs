@@ -14,7 +14,7 @@ use crate::stream::Stream;
 /// # Usage
 /// Construct with [`Self::new`] or [`Self::load_wav`] and then play with [`Self::play`].
 pub struct AudioPlayer<R: Read> {
-    stream: Mutex<(R, Stream, usize)>,
+    stream: Mutex<(R, Stream, usize, u64)>,
     stream_paused: Mutex<bool>,
     awaiting_resume: Condvar,
     max_read_bytes: usize,
@@ -24,19 +24,35 @@ impl<R: Read + Seek> AudioPlayer<R> {
     /// Parses a WAV File and returns an AudioPlayer over it.
     pub fn load_wav(mut reader: R) -> io::Result<Self> {
         let (format, max) = parse_wav_file(&mut reader)?;
+        let peek = reader
+            .stream_position()
+            .expect("Failed to get stream position");
         println!("format: {format:#?}, max: {max}");
-        Ok(Self::new(format, reader, max))
+        Ok(Self::new(format, reader, max, peek))
+    }
+
+    pub fn reset(&self) {
+        let mut guard = self.stream.lock().expect("AudioPlayer lock broken!!1!");
+        let (data, _, read_counter, start_reading_from) = &mut *guard;
+        data.seek(SeekFrom::Start(*start_reading_from as u64))
+            .expect("Failed to reset audio at begging");
+        *read_counter = 0;
     }
 }
 
 impl<R: Read> AudioPlayer<R> {
     /// Constructs a new AudioPlayer.
-    pub fn new(format: AudioFormat, reader: R, max_read_bytes: usize) -> Self {
+    pub fn new(
+        format: AudioFormat,
+        reader: R,
+        max_read_bytes: usize,
+        start_read_from: u64,
+    ) -> Self {
         let max_samples = format.samples_per_second();
         let stream = Stream::create(format, max_samples);
 
         Self {
-            stream: Mutex::new((reader, stream, 0)),
+            stream: Mutex::new((reader, stream, 0, start_read_from)),
             stream_paused: Mutex::new(false),
             awaiting_resume: Condvar::new(),
             max_read_bytes,
@@ -56,7 +72,7 @@ impl<R: Read> AudioPlayer<R> {
     /// Audio playback can be stopped with [`Self::pause`] and resumed again [`Self::resume`], calling this would reserve the current thread for audio playback.
     pub fn play(&self) -> std::io::Result<usize> {
         let mut guard = self.stream.lock().expect("AudioPlayer lock broken!!1!");
-        let (data, stream, read_counter) = &mut *guard;
+        let (data, stream, read_counter, _) = &mut *guard;
         let m_bytes = self.max_read_bytes - *read_counter;
 
         let samples_per_frame = stream.format().channels() as usize;
@@ -173,6 +189,11 @@ fn parse_wav_file<R: Read + Seek>(reader: &mut R) -> std::io::Result<(AudioForma
                 let mut fmt_chunk_bytes = [0u8; size_of::<WavFmtChunk>()];
                 reader.read_exact(&mut fmt_chunk_bytes)?;
                 fmt_chunk = Some(unsafe { core::mem::transmute(fmt_chunk_bytes) });
+
+                let consumed = size_of::<WavFmtChunk>() as u32;
+                if chunk.subchunk_size > consumed {
+                    reader.seek_relative((chunk.subchunk_size - consumed) as i64)?;
+                }
             }
             b"data" => {
                 data_info = Some((reader.stream_position()?, chunk.subchunk_size));
