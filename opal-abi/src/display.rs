@@ -3,7 +3,7 @@
 use uopal_desktop::themes::Color;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-/// Represents a single pixel
+/// Represents a single pixel (Premultiplied).
 #[repr(C)]
 pub struct Pixel {
     blue: u8,
@@ -30,6 +30,22 @@ impl Pixel {
     }
 
     pub const fn a(&self) -> u8 {
+        self.alpha
+    }
+
+    pub const fn red(&self) -> u8 {
+        self.red
+    }
+
+    pub const fn green(&self) -> u8 {
+        self.green
+    }
+
+    pub const fn blue(&self) -> u8 {
+        self.blue
+    }
+
+    pub const fn alpha(&self) -> u8 {
         self.alpha
     }
 
@@ -221,6 +237,27 @@ impl Pixel {
             green: green as u8,
             blue: blue as u8,
             alpha: alpha as u8,
+        }
+    }
+
+    /// Returns a demultiplied color.
+    pub const fn demultiply(&self) -> Color {
+        let alpha = self.a();
+        if alpha == 255 {
+            Color {
+                r: self.red,
+                g: self.green,
+                b: self.blue,
+                a: self.alpha,
+            }
+        } else {
+            let a = alpha as f64 / 255.0;
+            Color::rgba(
+                (self.r() as f64 / a + 0.5) as u8,
+                (self.g() as f64 / a + 0.5) as u8,
+                (self.b() as f64 / a + 0.5) as u8,
+                alpha,
+            )
         }
     }
 }

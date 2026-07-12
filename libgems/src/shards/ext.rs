@@ -103,7 +103,6 @@ macro_rules! ext_impl {
         }
     };
 }
-pub(super) use ext_impl;
 
 pub trait ShardsExt<S = (), M = ()>: Sized + Shard<S, M> {
     /// Registers a callback to be executed when the shard is clicked.
@@ -237,7 +236,6 @@ macro_rules! impl_deref {
     };
 }
 
-pub(super) use impl_deref;
 use tiny_skia::Pixmap;
 
 /// Represents a shard that cross-axis aligns its child.

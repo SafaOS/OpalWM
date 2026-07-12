@@ -93,6 +93,7 @@ impl<'se> ser::Serialize for Color {
 }
 
 impl Color {
+    pub const NONE: Self = Self::rgba(0, 0, 0, 0);
     pub const BLACK: Self = Self::rgb(0, 0, 0);
     pub const WHITE: Self = Self::rgb(0xFF, 0xFF, 0xFF);
 

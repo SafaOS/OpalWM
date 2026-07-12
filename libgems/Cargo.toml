@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 cosmic-text = { version = "0.16", default-features = false, features = ["std", "swash"] }
+image = { version = "0.25.10", default-features = false, optional = true }
 libopal = { path = "../libopal" }
 tiny-skia = { version = "0.12.0", default-features = false, features = ["std", "simd"] }
 uopal-desktop = { path = "../uopal-desktop" }

@@ -1,4 +1,7 @@
 mod button;
+mod image;
+pub use image::*;
+
 pub(crate) mod event;
 mod ext;
 mod label;

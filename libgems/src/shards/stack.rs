@@ -449,7 +449,7 @@ impl<S, M> Shard<S, M> for Stack<S, M> {
                         AxisAlign::Center => {
                             node.plot_at(
                                 (curr_pos
-                                    + Point::new(0., self.padding.top)
+                                    + Point::new(self.padding.left, self.padding.top)
                                     + ((rev_our_skip - rev_ele_skip) / 2.))
                                     + node_pad,
                             );

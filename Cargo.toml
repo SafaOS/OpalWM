@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace]
-members = ["libgem", "libgems", "libserver", "libserver/msg-macros", "libopal", "opal-abi", "opal-img", "uopal-desktop", "luneaudio", "lune-abi", "libartemis"]
+members = ["libgems", "libserver", "libserver/msg-macros", "libopal", "opal-abi", "opal-img", "uopal-desktop", "luneaudio", "lune-abi", "libartemis"]
 
 [dependencies]
 safa-api = { version = "0.6.0", git = "https://github.com/SafaOS/safa-api", features = ["std"] }
@@ -19,7 +19,7 @@ indexmap = "2.10.0"
 slab = "0.4.11"
 arrayvec = "0.7.6"
 libserver = { path = "libserver" }
-libblur = { version = "0.23.3", default-features = false, features = ["sse", "neon"] }
+libblur = { version = "0.23.3", default-features = false, features = ["sse"] }
 
 [profile.release]
 debug = 2
