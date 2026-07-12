@@ -1,6 +1,8 @@
 use std::{
+    io,
     ops::{Deref, DerefMut},
     sync::LazyLock,
+    time::Duration,
 };
 
 use libopal::{DequeuedEvents, defs::WindowID, safa_abi::poll::PollEntry};
@@ -194,9 +196,34 @@ impl<State, Message> App<State, Message> {
         }
     }
 
+    pub fn try_wait_for_events_timeout2(
+        &mut self,
+        timeout: Option<Duration>,
+    ) -> io::Result<DequeuedEvents> {
+        let events = libopal::dequeue_events_blocking(timeout);
+
+        match &events {
+            Ok(o) => self.handle_events_inner(&o),
+            _ => {}
+        }
+        events
+    }
+
+    pub fn try_wait_for_events_timeout(
+        &mut self,
+        timeout: Option<Duration>,
+    ) -> Option<DequeuedEvents> {
+        match self.try_wait_for_events_timeout2(timeout) {
+            Ok(e) => Some(e),
+
+            Err(io) if io.kind() == io::ErrorKind::TimedOut => None,
+            Err(other) => panic!("Unexpected error waiting for events: {other}"),
+        }
+    }
+
     pub fn try_wait_for_events(&mut self, blocking: bool) -> Option<DequeuedEvents> {
         let events = if blocking {
-            libopal::dequeue_events_blocking().expect("Failed to dequeue events")
+            libopal::dequeue_events_blocking(None).expect("Failed to dequeue events")
         } else {
             libopal::dequeue_events_non_blocking().expect("Failed to dequeue events")?
         };

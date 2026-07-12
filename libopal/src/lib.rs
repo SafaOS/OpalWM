@@ -2,6 +2,7 @@ use std::{
     io::{self, ErrorKind},
     ops::Deref,
     sync::{LazyLock, Mutex},
+    time::Duration,
 };
 
 use opal_abi::{
@@ -149,7 +150,7 @@ impl Deref for DequeuedEvents {
 /// Blockingly wait for an event from the window manager or dequeue waiting unhandled events.
 ///
 /// The non-blocking equalivent would be [`dequeue_events_non_blocking`].
-pub fn dequeue_events_blocking() -> io::Result<DequeuedEvents> {
+pub fn dequeue_events_blocking(timeout: Option<Duration>) -> io::Result<DequeuedEvents> {
     {
         let mut events = EVENTS_QUEUE
             .lock()
@@ -162,8 +163,19 @@ pub fn dequeue_events_blocking() -> io::Result<DequeuedEvents> {
     }
 
     let mut wm = WM_CONNECTION.lock().expect("Failed to lock WM connection");
+    wm.raw_socket()
+        .set_sock_opt(
+            safa_api::sockets::socket::SocketOpt::ReadTimeout,
+            timeout.map(|t| t.as_millis() as u64).unwrap_or(0),
+        )
+        .expect("Failed to set read timeout for WM's connection");
 
-    let (message, _) = Message::decode_from(&mut *wm).map_err(|e| match e {
+    let m = Message::decode_from(&mut *wm);
+
+    wm.raw_socket()
+        .set_sock_opt(safa_api::sockets::socket::SocketOpt::ReadTimeout, 0u64)
+        .expect("Failed to set read timeout for WM's connection");
+    let (message, _) = m.map_err(|e| match e {
         DecodeErrorOrIo::Io(io) => io,
         DecodeErrorOrIo::DecodeError(d) => unreachable!("Couldn't parse WM's response: {d:#?}"),
     })?;

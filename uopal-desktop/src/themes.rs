@@ -15,7 +15,7 @@ pub static THEME_JSON_PATH: &str = "theme.json";
 /// Path of the wallpaper directory. relative to the user configuration directory.
 pub static WALLPAPERS_SUBPATH: &str = "pictures/wallpapers";
 
-/// Given a relative path to an unkown configuration directory,
+/// Given a relative path to an unknown configuration directory,
 ///
 /// returns the full path in all configuration that affects the current user in prioritized order.
 pub fn lookup_configuration_path(path: impl AsRef<Path>) -> Vec<PathBuf> {
@@ -309,8 +309,6 @@ impl ThemesDatabase {
 
         let arc_apps_name = arc_apps_name.unwrap_or_else(|| first.clone());
         let arc_sys_name = arc_sys_name.unwrap_or(first);
-        println!("uopal: apps theme name: {arc_apps_name}");
-        println!("uopal: sys theme name: {arc_sys_name}");
         Ok(Self {
             loaded_themes,
             current_apps: arc_apps_name,
