@@ -109,6 +109,24 @@ impl<State, Message> App<State, Message> {
         self.windows.iter_mut().find(|w| w.win_id() == win)
     }
 
+    pub fn with_window_mut<R>(
+        &mut self,
+        win: WindowID,
+        f: impl FnOnce(&mut Window<State, Message>, &mut Data<State, Message>) -> R,
+    ) -> Option<R> {
+        let win = self.windows.iter_mut().find(|w| w.win_id() == win)?;
+        Some(f(win, &mut self.core))
+    }
+
+    pub fn with_window<R>(
+        &self,
+        win: WindowID,
+        f: impl FnOnce(&Window<State, Message>, &Data<State, Message>) -> R,
+    ) -> Option<R> {
+        let win = self.windows.iter().find(|w| w.win_id() == win)?;
+        Some(f(win, &self.core))
+    }
+
     pub fn remove_window(&mut self, win: WindowID) -> Option<Window<State, Message>> {
         let index = self.windows.iter().position(|w| w.win_id() == win)?;
         Some(self.windows.remove(index))
