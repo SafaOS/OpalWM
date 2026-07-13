@@ -3,7 +3,7 @@ use std::{ffi::OsStr, path::PathBuf};
 use cosmic_text::{FontSystem, SwashCache};
 use tiny_skia::{PathBuilder, PixmapMut};
 
-use crate::render::{BoundingRect, Point, Shape};
+use crate::render::{BoundingRect, Point, Shape, utils};
 
 use super::Color;
 
@@ -161,49 +161,84 @@ impl<'c> CanvasContext<'c> {
     }
 
     #[inline]
-    pub fn draw_text(&mut self, position: Point, brush: &PaintBrush, text: &cosmic_text::Buffer) {
-        let cosmic_color;
-        let mut paint: tiny_skia::Paint<'_> = brush.clone().into();
-        match &paint.shader {
-            tiny_skia::Shader::SolidColor(color) => {
-                let color = color.to_color_u8();
-                cosmic_color = cosmic_text::Color::rgba(
-                    color.red(),
-                    color.green(),
-                    color.blue(),
-                    color.alpha(),
-                );
-            }
-            c => {
-                todo!("{c:?} text coloring not yet implemented");
-            }
-        }
+    pub fn draw_text(&mut self, position: Point, color: Color, text: &cosmic_text::Buffer) {
+        let c = color.demultiply();
+        let target_y = position.y().ceil() as i32;
+        let target_x = position.x().ceil() as i32;
+
+        let pixmap = &mut self.pixmap;
+        let px_width = pixmap.width();
+        let px_height = pixmap.height();
+
+        let mut fill_rect_fast =
+            |x: u32, y: u32, width: u32, height: u32, c: tiny_skia::PremultipliedColorU8| {
+                let pixels = pixmap.pixels_mut();
+
+                let height = height.min(px_height.saturating_sub(y));
+                let width = width.min(px_width.saturating_sub(x));
+
+                for h in 0..height {
+                    let y = y + h;
+                    for w in 0..width {
+                        let index = ((y * px_width) + x + w) as usize;
+                        utils::blend_pixel(&c, &mut pixels[index]);
+                    }
+                }
+            };
+        let cache = &mut self.cache.swash_cache;
+        let font_system = &mut self.cache.font_system;
 
         text.draw(
-            &mut self.cache.font_system,
-            &mut self.cache.swash_cache,
-            cosmic_color,
-            |x, y, w, h, c| {
-                paint.set_color_rgba8(c.r(), c.g(), c.b(), c.a());
+            font_system,
+            cache,
+            cosmic_text::Color::rgba(c.r, c.g, c.b, c.a),
+            |o_x, o_y, w, h, color| {
+                let x = o_x + target_x;
+                let y = o_y + target_y;
 
-                self.pixmap.fill_rect(
-                    tiny_skia::Rect::from_xywh(x as f32, y as f32, w as f32, h as f32)
-                        .expect("Failed to construct rect"),
-                    &paint,
-                    tiny_skia::Transform::from_translate(position.x(), position.y()),
-                    None,
+                let (x, w) = if x < 0 {
+                    let overhang = (-x) as u32;
+                    if overhang >= w {
+                        return;
+                    }
+                    (0u32, w - overhang)
+                } else {
+                    (x as u32, w)
+                };
+                let (y, h) = if y < 0 {
+                    let overhang = (-y) as u32;
+                    if overhang >= h {
+                        return;
+                    }
+                    (0u32, h - overhang)
+                } else {
+                    (y as u32, h)
+                };
+
+                fill_rect_fast(
+                    x as u32,
+                    y as u32,
+                    w,
+                    h,
+                    tiny_skia::ColorU8::from_rgba(color.r(), color.g(), color.b(), color.a())
+                        .premultiply(),
                 );
             },
         );
     }
     #[inline]
-    pub fn fill_with_pixmap(&mut self, position: Point, other: tiny_skia::PixmapRef) {
+    pub fn fill_with_pixmap(
+        &mut self,
+        position: Point,
+        other: tiny_skia::PixmapRef,
+        paint: &tiny_skia::PixmapPaint,
+    ) {
         self.pixmap.draw_pixmap(
-            position.x().floor() as i32,
-            position.y().floor() as i32,
+            0,
+            0,
             other,
-            &tiny_skia::PixmapPaint::default(),
-            tiny_skia::Transform::identity(),
+            &paint,
+            tiny_skia::Transform::from_translate(position.x(), position.y()),
             None,
         );
     }

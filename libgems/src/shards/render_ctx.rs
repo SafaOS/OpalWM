@@ -108,13 +108,17 @@ impl<'s, 'c> RenderCtx<'s, 'c> {
 
     #[inline]
     /// Fills and renders text from the given cosmic text buffer with the given brush, at the current location.
-    pub fn fill_text(&mut self, brush: &PaintBrush, text: &cosmic_text::Buffer) {
-        self.canvas.draw_text(self.origin, brush, text);
+    pub fn fill_text(&mut self, color: crate::Color, text: &cosmic_text::Buffer) {
+        self.canvas.draw_text(self.origin, color, text);
     }
 
     #[inline]
-    pub fn fill_with_pixmap(&mut self, pixmap: tiny_skia::PixmapRef) {
-        self.canvas.fill_with_pixmap(self.origin, pixmap);
+    pub fn fill_with_pixmap(
+        &mut self,
+        pixmap: tiny_skia::PixmapRef,
+        paint: &tiny_skia::PixmapPaint,
+    ) {
+        self.canvas.fill_with_pixmap(self.origin, pixmap, paint)
     }
 
     /// Fills the given area with background (brush paint) as by clearing it.

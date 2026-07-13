@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use tiny_skia::Pixmap;
+use tiny_skia::{Pixmap, PixmapPaint};
 
 use crate::{BoundingRect, shards::Shard};
 
@@ -8,6 +8,7 @@ use crate::{BoundingRect, shards::Shard};
 #[derive(Debug, Clone)]
 pub struct Image<S = (), M = ()> {
     image: Pixmap,
+    paint: Option<PixmapPaint>,
     changed: bool,
     _data: PhantomData<(S, M)>,
 }
@@ -17,8 +18,14 @@ impl<S, M> Image<S, M> {
         Self {
             image: pixmap,
             changed: true,
+            paint: None,
             _data: PhantomData,
         }
+    }
+
+    pub fn with_paint(mut self, paint: impl Into<PixmapPaint>) -> Self {
+        self.paint = Some(paint.into());
+        self
     }
 
     pub fn into_pixels(self) -> Pixmap {
@@ -62,6 +69,6 @@ impl<S, M> Shard<S, M> for Image<S, M> {
     }
 
     fn render(&mut self, ctx: &mut super::RenderCtx, _: &crate::Data<S, M>) {
-        ctx.fill_with_pixmap(self.image.as_ref());
+        ctx.fill_with_pixmap(self.image.as_ref(), &PixmapPaint::default());
     }
 }

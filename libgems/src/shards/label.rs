@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use crate::{BoundingRect, Data, Point, theme};
 use cosmic_text::{Attrs, Buffer, Metrics, Wrap};
 
-use crate::{render::PaintBrush, shards::Shard};
+use crate::shards::Shard;
 
 #[derive(Debug, Clone)]
 pub struct Label<S, M = ()> {
@@ -11,7 +11,6 @@ pub struct Label<S, M = ()> {
     wrap: Wrap,
     text: String,
     text_changed: bool,
-    paint: Option<PaintBrush<'static>>,
     attrs: Attrs<'static>,
     align: Option<cosmic_text::Align>,
     center: bool,
@@ -26,7 +25,6 @@ impl<S, M> Label<S, M> {
             buffer: Buffer::new_empty(Metrics::relative(12., 1.)),
             wrap: Wrap::WordOrGlyph,
             text_changed: true,
-            paint: None,
             attrs: Attrs::new(),
             align: None,
             center: false,
@@ -45,21 +43,31 @@ impl<S, M> Label<S, M> {
     }
 
     #[inline]
-    /// Sets the paint brush for the button.
-    pub fn with_paint(mut self, paint: impl Into<PaintBrush<'static>>) -> Self {
-        self.paint = Some(paint.into());
+    pub fn with_text_color(mut self, color: crate::Color) -> Self {
+        self.set_text_color(color);
+        self
+    }
+
+    #[inline]
+    pub fn set_text_color(&mut self, color: crate::Color) -> &mut Self {
+        let c = color.demultiply();
+        self.attrs = core::mem::replace(&mut self.attrs, Attrs::new())
+            .color(cosmic_text::Color::rgba(c.r, c.g, c.b, c.a));
+        self.text_changed = true;
         self
     }
 
     #[inline]
     pub fn with_wrap(mut self, wrap: Wrap) -> Self {
         self.wrap = wrap;
+        self.text_changed = true;
         self
     }
 
     #[inline]
     pub fn with_attrs(mut self, attrs: Attrs<'static>) -> Self {
         self.attrs = attrs;
+        self.text_changed = true;
         self
     }
 
@@ -166,13 +174,9 @@ impl<S, M> Shard<S, M> for Label<S, M> {
             start = crate::Point::new((r_w - b_w) / 2., (r_h - b_h) / 2.);
         }
 
-        let paint = match self.paint {
-            None => &data.env().get(theme::DEFAULT_TEXT_COLOR).into(),
-            Some(ref p) => p,
-        };
-
+        let text_color = data.env().get(theme::DEFAULT_TEXT_COLOR);
         ctx.nest_ctx(start, BoundingRect::new(b_w, b_h), |ctx| {
-            ctx.fill_text(paint, &self.buffer);
+            ctx.fill_text(text_color, &self.buffer);
         });
         self.buffer.set_redraw(false);
     }

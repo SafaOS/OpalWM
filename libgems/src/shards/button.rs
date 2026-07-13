@@ -1,6 +1,6 @@
 use crate::render::BoundingConstraints;
 use crate::shards::lifecycle::LifeCycle;
-use crate::shards::{CachedShard, Label, RenderCtx, ShardsExt};
+use crate::shards::{Label, RenderCtx};
 use crate::theme::DEFAULT_BUTTON_COLOR;
 use crate::{Data, EventCtx, ShardEvent};
 
@@ -12,7 +12,7 @@ use crate::{
 
 /// A Clickable button with a label.
 pub struct Button<S, M = ()> {
-    label: CachedShard<Label<S, M>>,
+    label: Label<S, M>,
     radius: f32,
     paint: Option<PaintBrush<'static>>,
     dirty: bool,
@@ -24,7 +24,7 @@ impl<S, M> Button<S, M> {
             radius: 8.,
             paint: None,
             dirty: true,
-            label: label.center_text().cached(),
+            label: label.center_text(),
         }
     }
 

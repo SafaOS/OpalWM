@@ -236,7 +236,7 @@ macro_rules! impl_deref {
     };
 }
 
-use tiny_skia::Pixmap;
+use tiny_skia::{Pixmap, PixmapPaint};
 
 /// Represents a shard that cross-axis aligns its child.
 pub struct AlignedBox<S> {
@@ -646,7 +646,7 @@ impl<T, M, S: Shard<T, M> + ?Sized> ExtShard<T, M, S> for CachedShard<S> {
                 self.shard.render(ctx, data)
             });
         }
-        ctx.fill_with_pixmap(cache.as_ref());
+        ctx.fill_with_pixmap(cache.as_ref(), &PixmapPaint::default());
     }
 }
 
