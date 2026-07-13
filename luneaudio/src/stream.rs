@@ -339,7 +339,7 @@ fn if32tf32(bytes: &[u8], idx: usize) -> Option<f32> {
 fn ii24tf32(bytes: &[u8], idx: usize) -> Option<f32> {
     let s = idx * 3;
     let i = i32::from_le_bytes([*bytes.get(s)?, bytes[s + 1], bytes[s + 2], 0]) << 8 >> 8;
-    Some((i as f32) / (1 << 24) as f32)
+    Some((i as f32) / (1 << 23) as f32)
 }
 
 macro_rules! prev_multiply_of {
@@ -432,7 +432,7 @@ impl Stream {
                     wrote += 2;
                 }
                 (ChannelCount::Dual, ChannelCount::Single) => {
-                    sync_to[wr_off + (i / 2)] += sample * self.volume;
+                    sync_to[wr_off + (i / 2)] += (sample * self.volume) / 2.;
                     if i % 2 == 0 {
                         wrote += 1;
                     }
