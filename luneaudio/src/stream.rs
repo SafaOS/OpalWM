@@ -1,7 +1,8 @@
 use std::{
     collections::HashMap,
+    fmt::Debug,
     fs::{File, OpenOptions},
-    io::Write,
+    io::{self},
     sync::{Arc, Condvar, LazyLock, Mutex},
 };
 
@@ -13,6 +14,36 @@ use safa_api::shm::SharedObject;
 pub const TICK_DURATION_MS: usize = 25;
 const BUF_PADDING_MUL: usize = 4;
 
+trait AudioInterface: Send + Sync + Debug {
+    fn queued_samples(&self) -> usize;
+    fn write(&mut self, data: &[u8]) -> io::Result<usize>;
+}
+
+impl AudioInterface for File {
+    fn queued_samples(&self) -> usize {
+        use std::os::safaos::io::IoUtils;
+
+        const CMD_GET_AC_QUEUED_SAMPLES: u16 = 0x1003;
+        let mut count = 0usize;
+        self.send_command(CMD_GET_AC_QUEUED_SAMPLES, (&raw mut count) as u64)
+            .expect("Failed to send a command to file");
+        count
+    }
+    fn write(&mut self, data: &[u8]) -> io::Result<usize> {
+        io::Write::write(self, data)
+    }
+}
+
+#[derive(Debug)]
+struct DummyAudio;
+impl AudioInterface for DummyAudio {
+    fn queued_samples(&self) -> usize {
+        0
+    }
+    fn write(&mut self, data: &[u8]) -> io::Result<usize> {
+        Ok(data.len())
+    }
+}
 #[derive(Debug)]
 pub struct Mixer {
     format: AudioFormat,
@@ -20,7 +51,7 @@ pub struct Mixer {
     write_ptr: usize,
     pending_buffer: Vec<f32>,
     samples_per_ms: usize,
-    file: File,
+    file: Box<dyn AudioInterface>,
     streams: Vec<Stream>,
     stream_ids: HashMap<StreamID, usize>,
     next_stream_id: StreamID,
@@ -28,22 +59,20 @@ pub struct Mixer {
 }
 
 impl Mixer {
-    /// Create a new Audio Mixer from system's audio drivers.
-    pub fn create() -> Self {
-        let audio_devices =
-            std::fs::read_dir("dev:/audio").expect("Failed to retrieve audio devices");
+    fn find_audio_device() -> io::Result<(AudioFormat, File)> {
+        let audio_devices = std::fs::read_dir("dev:/audio")?;
         let device_path = audio_devices
             .filter_map(|e| e.ok())
             .filter(|e| e.file_type().unwrap().is_file())
             .map(|e| e.path())
             .next()
-            .expect("No audio device found");
+            .ok_or(io::Error::new(
+                io::ErrorKind::NotFound,
+                "No audi device found",
+            ))?;
 
         log!("Using Audio driver: {}", device_path.display());
-        let file = OpenOptions::new()
-            .write(true)
-            .open(device_path)
-            .expect("Failed to open audio driver");
+        let file = OpenOptions::new().write(true).open(device_path)?;
 
         /// Describes the PCM Format an Audio card accepts.
         #[repr(C)]
@@ -77,6 +106,29 @@ impl Mixer {
         )
         .expect("Invalid audio format to construct");
 
+        Ok((audio_format, file))
+    }
+    /// Create a new Audio Mixer from system's audio drivers.
+    pub fn create() -> Self {
+        let (audio_format, file) = Self::find_audio_device()
+            .map(|(af, f)| {
+                let boxed: Box<dyn AudioInterface> = Box::new(f);
+                (af, boxed)
+            })
+            .unwrap_or_else(|e| {
+                let dummy: Box<dyn AudioInterface> = Box::new(DummyAudio);
+                log!("Failed to find an audio device: {e:?}, opening a dummy");
+                (
+                    AudioFormat::new(
+                        ChannelCount::Dual,
+                        48000,
+                        BitDepth::D16,
+                        SampleFormat::Singed,
+                    )
+                    .unwrap(),
+                    dummy,
+                )
+            });
         let samples_per_ms = audio_format.samples_per_second() as usize / 1000;
         Self {
             format: audio_format,
@@ -100,14 +152,7 @@ impl Mixer {
     }
 
     fn ac_queued_samples(&self) -> usize {
-        use std::os::safaos::io::IoUtils;
-
-        const CMD_GET_AC_QUEUED_SAMPLES: u16 = 0x1003;
-        let mut count = 0usize;
-        self.file
-            .send_command(CMD_GET_AC_QUEUED_SAMPLES, (&raw mut count) as u64)
-            .expect("Failed to send a command to file");
-        count
+        self.file.queued_samples()
     }
 
     fn flush_existing(&mut self) -> usize {
