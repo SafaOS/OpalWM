@@ -172,6 +172,21 @@ impl<'a> Future for ListenerFuture<'a> {
 }
 
 async fn listener_loop(mut listener: UnixListener) {
+    let opal_use_threads_var = env::var("OPAL_USE_THREADS")
+        .map(|s| s.parse::<u8>().ok())
+        .ok()
+        .flatten()
+        .unwrap_or(0);
+
+    log!("Lune can use {} threads", opal_use_threads_var);
+    let helper_threads_count =
+        opal_use_threads_var.saturating_sub(2 /* this thread, and the mixer thread */);
+    if helper_threads_count != 0 {
+        for _ in 0..helper_threads_count {
+            std::thread::spawn(|| executor::run(|| false));
+        }
+    }
+
     loop {
         dlog!("Listener Tick!");
         let sock_future = ListenerFuture::new(&mut listener);
@@ -197,21 +212,5 @@ pub fn listener_thread() {
 
     let listener = listener_builder.bind().expect("Failed to bind a listener");
     log!("Lune Listening at {}", addr);
-
-    let opal_use_threads_var = env::var("OPAL_USE_THREADS")
-        .map(|s| s.parse::<u8>().ok())
-        .ok()
-        .flatten()
-        .unwrap_or(0);
-
-    log!("Lune can use {} threads", opal_use_threads_var);
-    let helper_threads_count =
-        opal_use_threads_var.saturating_sub(2 /* this thread, and the mixer thread */);
-    if helper_threads_count != 0 {
-        for _ in 0..helper_threads_count {
-            std::thread::spawn(|| executor::run(|| false));
-        }
-    }
-
     executor::block_on(listener_loop(listener), || false);
 }

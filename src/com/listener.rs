@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    env,
     io::ErrorKind,
     process::{Command, Stdio},
     sync::Arc,
@@ -81,6 +80,7 @@ fn handle_create_window(
     shm_objects: &HashMap<ShmKey, Arc<SharedObject>>,
     request: CreateWindow,
 ) -> Result<Response, ResponseError> {
+    dlog!("Create window: {shm_objects:#?}, request: {request:#?}");
     let shm_key = request.shm_key();
     let shm_object = shm_objects
         .get(&shm_key)
@@ -358,6 +358,22 @@ impl<'a> Future for ListenerFuture<'a> {
 }
 
 async fn listener_loop(mut listener: UnixListener) {
+    // FIXME: A very specific issue prevents from doing this correctly:
+    //  env::var("OPAL_USE_THREADS")
+    //       .map(|s| s.parse::<u8>().ok())
+    //       .ok()
+    //       .flatten()
+    //       .unwrap_or(0)
+    let opal_use_threads_var = 2usize;
+
+    log!("Opal can use {} threads", opal_use_threads_var);
+    let helper_threads_count =
+        opal_use_threads_var.saturating_sub(2 /* this thread, and the input thread */);
+    if helper_threads_count != 0 {
+        for _ in 0..helper_threads_count {
+            std::thread::spawn(|| executor::run(crate::window::redraw));
+        }
+    }
     loop {
         dlog!("Listener Tick!");
         let sock_future = ListenerFuture::new(&mut listener);
@@ -383,21 +399,6 @@ pub fn listener_thread() {
 
     let listener = listener_builder.bind().expect("Failed to bind a listener");
     log!("WM Listening at {}", addr);
-
-    let opal_use_threads_var = env::var("OPAL_USE_THREADS")
-        .map(|s| s.parse::<u8>().ok())
-        .ok()
-        .flatten()
-        .unwrap_or(0);
-
-    log!("Opal can use {} threads", opal_use_threads_var);
-    let helper_threads_count =
-        opal_use_threads_var.saturating_sub(2 /* this thread, and the input thread */);
-    if helper_threads_count != 0 {
-        for _ in 0..helper_threads_count {
-            std::thread::spawn(|| executor::run(crate::window::redraw));
-        }
-    }
 
     std::thread::spawn(|| {
         sleep(Duration::from_millis(10));
