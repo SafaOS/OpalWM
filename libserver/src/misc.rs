@@ -1,11 +1,16 @@
-use std::{hash::Hash, mem::MaybeUninit, ops::Deref};
+use std::{
+    fmt::{Debug, Display},
+    hash::Hash,
+    mem::MaybeUninit,
+    ops::Deref,
+};
 
 use crate::encoding::{
     BufferTooSmall, DecodeError, DecodeErrorOrIo, HasMaxEncodeSize, MessageParam,
 };
 
 /// An array of maximum size `MAX`.
-#[derive(Debug, Copy)]
+#[derive(Copy)]
 pub struct BufOfMax<const MAX: usize, T: Copy> {
     len: usize,
     inner: [MaybeUninit<T>; MAX],
@@ -80,6 +85,12 @@ impl<const MAX: usize, T: Copy> BufOfMax<MAX, T> {
             }
             Ok(())
         }
+    }
+}
+
+impl<const N: usize, T: Copy + Debug> Debug for BufOfMax<N, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.items().fmt(f)
     }
 }
 
@@ -205,7 +216,7 @@ impl<const MAX: usize, T: Hash + Copy> Hash for BufOfMax<MAX, T> {
 }
 
 /// Same as [`BufOfMax<MAX, u8>`], except that it is guaranteed to be a valid UTF-8 string.
-#[derive(Debug, Clone, Copy, PartialEq, Default, Eq)]
+#[derive(Clone, Copy, PartialEq, Default, Eq)]
 pub struct StrOfMax<const MAX: usize>(BufOfMax<MAX, u8>);
 
 impl<const MAX: usize> StrOfMax<MAX> {
@@ -282,6 +293,18 @@ impl<const MAX: usize> StrOfMax<MAX> {
         let mut tmp_buf = [0; 4];
         let s = c.encode_utf8(&mut tmp_buf);
         self.push_str(s)
+    }
+}
+
+impl<const N: usize> Debug for StrOfMax<N> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(self.as_str(), f)
+    }
+}
+
+impl<const N: usize> Display for StrOfMax<N> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(self.as_str(), f)
     }
 }
 
