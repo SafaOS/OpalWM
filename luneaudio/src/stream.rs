@@ -11,8 +11,8 @@ use lune_abi::StreamID;
 pub use lune_abi::misc::*;
 use safa_api::shm::SharedObject;
 
-pub const TICK_DURATION_MS: usize = 25;
-const BUF_PADDING_MUL: usize = 4;
+pub const TICK_DURATION_MS: usize = 21;
+const BUF_PADDING_MUL: usize = 3;
 
 trait AudioInterface: Send + Sync + Debug {
     fn queued_samples(&self) -> usize;
@@ -177,6 +177,11 @@ impl Mixer {
 
         let single_flush_max_ms = TICK_DURATION_MS * BUF_PADDING_MUL;
         let to_flush_ms = single_flush_max_ms.abs_diff(ac_pending_samples / self.samples_per_ms);
+
+        // dlog!(
+        //     "Queued Samples: {ac_pending_samples}, queued_samples_ms: {}, to_flush: {to_flush_ms}",
+        //     ac_pending_samples / self.samples_per_ms
+        // );
         let normalized_max = to_flush_ms * self.samples_per_ms;
 
         let samples = (buf.len() / bytes_per_sample)
@@ -201,12 +206,12 @@ impl Mixer {
             }
             BitDepth::D24 => {
                 for (i, sample) in drained.enumerate() {
-                    let sample_i32 = (sample.clamp(-1., 1.) * (1 << 24) as f32) as i32;
+                    let sample_i32 = (sample.clamp(-1., 1.) * ((1 << 23) - 1) as f32) as i32;
                     let sample_bytes = i32::to_le_bytes(sample_i32);
 
-                    buf[i * 3] = sample_bytes[0];
-                    buf[(i * 3) + 1] = sample_bytes[1];
-                    buf[(i * 3) + 2] = sample_bytes[2];
+                    buf[i * 4] = sample_bytes[0];
+                    buf[(i * 4) + 1] = sample_bytes[1];
+                    buf[(i * 4) + 2] = sample_bytes[2];
                 }
             }
             BitDepth::D32 => {
@@ -232,6 +237,11 @@ impl Mixer {
         self.write_ptr += samples * bytes_per_sample;
 
         let wrote = self.flush_existing() + before;
+
+        // dlog!(
+        //     "flushed: {}ms",
+        //     (wrote / bytes_per_sample) / self.samples_per_ms
+        // );
         (
             wrote / bytes_per_sample,
             self.out_buffer.len().saturating_sub(self.write_ptr) / bytes_per_sample,
@@ -439,13 +449,6 @@ impl Stream {
                 as usize,
             dst_format.channels() as usize
         );
-
-        // libserver::dlog!(
-        //     "sync to len: {}, max usage: {}, pending: {}, samples to sync: {samples_to_sync}, off: {sample_offset}, requested: {samples}",
-        //     sync_to.len(),
-        //     max_sample_usage,
-        //     self.pending_samples
-        // );
 
         let idx_offset = sample_offset * bytes_per_sample;
         let src_buf = &source_buffer[idx_offset..idx_offset + (samples_to_sync * bytes_per_sample)];
