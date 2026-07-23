@@ -47,6 +47,7 @@ impl AudioInterface for DummyAudio {
 #[derive(Debug)]
 pub struct Mixer {
     format: AudioFormat,
+    stride_per_sample: u8,
     out_buffer: Box<[u8]>,
     write_ptr: usize,
     pending_buffer: Vec<f32>,
@@ -59,7 +60,7 @@ pub struct Mixer {
 }
 
 impl Mixer {
-    fn find_audio_device() -> io::Result<(AudioFormat, File)> {
+    fn find_audio_device() -> io::Result<(AudioFormat, u8, File)> {
         let audio_devices = std::fs::read_dir("dev:/audio")?;
         let device_path = audio_devices
             .filter_map(|e| e.ok())
@@ -79,7 +80,8 @@ impl Mixer {
         #[derive(Debug, Clone, Copy, Default)]
         pub struct AudioInfo {
             freq_hz: u32,
-            __padding: [u8; 2],
+            __padding: [u8; 1],
+            stride_per_sample: u8,
             bits_per_sample: u8,
             channels: u8,
         }
@@ -106,14 +108,14 @@ impl Mixer {
         )
         .expect("Invalid audio format to construct");
 
-        Ok((audio_format, file))
+        Ok((audio_format, audio_info.stride_per_sample, file))
     }
     /// Create a new Audio Mixer from system's audio drivers.
     pub fn create() -> Self {
-        let (audio_format, file) = Self::find_audio_device()
-            .map(|(af, f)| {
+        let (audio_format, stride_per_sample, file) = Self::find_audio_device()
+            .map(|(af, stride, f)| {
                 let boxed: Box<dyn AudioInterface> = Box::new(f);
-                (af, boxed)
+                (af, stride, boxed)
             })
             .unwrap_or_else(|e| {
                 let dummy: Box<dyn AudioInterface> = Box::new(DummyAudio);
@@ -126,18 +128,20 @@ impl Mixer {
                         SampleFormat::Singed,
                     )
                     .unwrap(),
+                    16,
                     dummy,
                 )
             });
         let samples_per_ms = audio_format.samples_per_second() as usize / 1000;
         Self {
             format: audio_format,
+            stride_per_sample: stride_per_sample,
             out_buffer: vec![
                 0;
                 samples_per_ms
                     * TICK_DURATION_MS
                     * BUF_PADDING_MUL
-                    * (audio_format.bit_depth() as usize / 8)
+                    * (stride_per_sample as usize / 8)
             ]
             .into_boxed_slice(),
             write_ptr: 0,
@@ -197,32 +201,45 @@ impl Mixer {
         match self.format.bit_depth() {
             BitDepth::D16 => {
                 for (i, sample) in drained.enumerate() {
+                    let i = i * (self.stride_per_sample / 8) as usize;
                     let sample_i16 = (sample.clamp(-1., 1.) * i16::MAX as f32) as i16;
                     let sample_bytes = i16::to_le_bytes(sample_i16);
 
-                    buf[i * 2] = sample_bytes[0];
-                    buf[(i * 2) + 1] = sample_bytes[1];
+                    buf[i] = sample_bytes[0];
+                    buf[i + 1] = sample_bytes[1];
                 }
             }
             BitDepth::D24 => {
                 for (i, sample) in drained.enumerate() {
+                    // FIXME: This is implemented to follow the iHDA spec.
+                    let i = i * (self.stride_per_sample / 8) as usize;
+
                     let sample_i32 = (sample.clamp(-1., 1.) * ((1 << 23) - 1) as f32) as i32;
                     let sample_bytes = i32::to_le_bytes(sample_i32);
 
-                    buf[i * 4] = sample_bytes[0];
-                    buf[(i * 4) + 1] = sample_bytes[1];
-                    buf[(i * 4) + 2] = sample_bytes[2];
+                    if self.stride_per_sample == 32 {
+                        buf[i] = 0;
+                        buf[i + 1] = sample_bytes[0];
+                        buf[i + 2] = sample_bytes[1];
+                        buf[i + 3] = sample_bytes[2];
+                    } else {
+                        buf[i] = sample_bytes[0];
+                        buf[i + 1] = sample_bytes[1];
+                        buf[i + 2] = sample_bytes[2];
+                    }
                 }
             }
             BitDepth::D32 => {
                 for (i, sample) in drained.enumerate() {
+                    let i = i * (self.stride_per_sample / 8) as usize;
+
                     let sample_i32 = (sample.clamp(-1., 1.) * i32::MAX as f32) as i32;
                     let sample_bytes = i32::to_le_bytes(sample_i32);
 
-                    buf[i * 4] = sample_bytes[0];
-                    buf[(i * 4) + 1] = sample_bytes[1];
-                    buf[(i * 4) + 2] = sample_bytes[2];
-                    buf[(i * 4) + 3] = sample_bytes[3];
+                    buf[i] = sample_bytes[0];
+                    buf[i + 1] = sample_bytes[1];
+                    buf[i + 2] = sample_bytes[2];
+                    buf[i + 3] = sample_bytes[3];
                 }
             }
         }
@@ -234,7 +251,7 @@ impl Mixer {
 
         self.pending_buffer
             .resize(self.pending_buffer.capacity(), 0.);
-        self.write_ptr += samples * bytes_per_sample;
+        self.write_ptr += samples * self.stride_per_sample as usize / 8;
 
         let wrote = self.flush_existing() + before;
 
